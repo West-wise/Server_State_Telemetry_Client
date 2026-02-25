@@ -5,27 +5,52 @@ import androidx.lifecycle.viewModelScope
 import com.SST.server_state_telemetry_client.domain.model.RegistedServerList
 import com.SST.server_state_telemetry_client.domain.repository.TelemetryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @HiltViewModel
-class MainViewModel @Inject constructor(
-    private val repository: TelemetryRepository
-) : ViewModel() {
+class MainViewModel @Inject constructor(private val repository: TelemetryRepository) : ViewModel() {
 
     private val _connectionStatus = MutableStateFlow("Disconnected")
     val connectionStatus = _connectionStatus.asStateFlow()
-    private val _servers = MutableStateFlow<List<RegistedServerList>>(emptyList())
-    val servers: StateFlow<List<RegistedServerList>> = _servers.asStateFlow()
+    val servers: StateFlow<List<RegistedServerList>> =
+            repository
+                    .getAllServers()
+                    .stateIn(
+                            scope = viewModelScope,
+                            started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+                            initialValue = emptyList()
+                    )
 
-    fun connect(host: String, port: Int) {
+    init {
         viewModelScope.launch {
             try {
-                repository.connect(host, port)
+                // Auto-connect to all registered servers on startup
+                val initialServers = repository.getAllServers().first()
+                initialServers.forEach { server -> connect(server.ip, server.port, server.hmacKey) }
+            } catch (e: Exception) {
+                // Ignore exceptions during auto-connect
+            }
+        }
+    }
+
+    fun getServerState(
+            host: String,
+            port: Int
+    ): kotlinx.coroutines.flow.Flow<
+            com.SST.server_state_telemetry_client.domain.model.SystemStats> {
+        return repository.getServerState(host, port)
+    }
+
+    fun connect(host: String, port: Int, hmacKey: String = "") {
+        viewModelScope.launch {
+            try {
+                repository.connect(host, port, hmacKey)
                 _connectionStatus.value = "Connected to $host:$port"
             } catch (e: Exception) {
                 _connectionStatus.value = "Error: ${e.message}"
@@ -34,43 +59,63 @@ class MainViewModel @Inject constructor(
     }
 
     // TODO(modified): 서버 추가 (id 유니크 보장)
-    fun addServer(name: String, ip: String, status: Boolean = false) {
+    fun addServer(
+            name: String,
+            ip: String,
+            status: Boolean = false,
+            port: Int = 443,
+            hmacKey: String = ""
+    ) {
         val safeName = name.trim()
         val safeIp = ip.trim()
 
         if (safeName.isBlank() || safeIp.isBlank()) return
 
-        val current = _servers.value
-        val newId = (current.maxOfOrNull { it.id } ?: 0) + 1
-
-        _servers.value = current + RegistedServerList(
-            id = newId,
-            ip = safeIp,
-            name = safeName,
-            status = status
-        )
-    }
-
-    fun deleteServer(id: Int) {
-        _servers.update { list ->
-            list.filter { it.id != id } // TODO(modified)
+        viewModelScope.launch {
+            repository.addServer(name = safeName, ip = safeIp, port = port, hmacKey = hmacKey)
+            // Attempt auto-connect upon adding
+            connect(safeIp, port, hmacKey)
         }
     }
 
-    fun editServer(id: Int, name: String, ip: String, status: Boolean? = null){
+    fun deleteServer(id: Int) {
+        val targetServer = servers.value.find { it.id == id }
+        if (targetServer != null) {
+            viewModelScope.launch {
+                try {
+                    repository.disconnect(targetServer.ip, targetServer.port)
+                } catch (e: Exception) {
+                    _connectionStatus.value = "Disconnect Error: ${e.message}"
+                }
+                repository.deleteServer(id)
+            }
+        }
+    }
+
+    fun editServer(
+            id: Int,
+            name: String,
+            ip: String,
+            status: Boolean? = null,
+            port: Int? = null,
+            hmacKey: String? = null
+    ) {
         val safeName = name.trim()
         val safeIp = ip.trim()
-        if( safeName.isBlank() || safeIp.isBlank()) return
+        if (safeName.isBlank() || safeIp.isBlank()) return
 
-        _servers.update { list ->
-            list.map { s ->
-                if(s.id == id){
-                    s.copy(
-                        name = safeName,
-                        ip = safeIp,
-                        status = status ?: s.status
-                    )
-                } else s
+        val targetServer = servers.value.find { it.id == id }
+        if (targetServer != null) {
+            viewModelScope.launch {
+                repository.updateServer(
+                        targetServer.copy(
+                                name = safeName,
+                                ip = safeIp,
+                                status = status ?: targetServer.status,
+                                port = port ?: targetServer.port,
+                                hmacKey = hmacKey ?: targetServer.hmacKey
+                        )
+                )
             }
         }
     }
