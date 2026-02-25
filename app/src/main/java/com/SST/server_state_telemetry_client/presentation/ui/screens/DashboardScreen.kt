@@ -39,26 +39,22 @@ import com.SST.server_state_telemetry_client.presentation.ui.components.StatusDo
 import com.SST.server_state_telemetry_client.presentation.viewmodel.MainViewModel
 
 @Composable
-fun DashboardScreen(
-    navController: NavController,
-    viewModel: MainViewModel = hiltViewModel()
-) {
+fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hiltViewModel()) {
 
     val connectionStatus by viewModel.connectionStatus.collectAsState()
     val servers by viewModel.servers.collectAsStateWithLifecycle()
 
     // 서버 추가/수정 관련 변수들
     var showDialog by remember { mutableStateOf(false) }
-    var dialogMode by remember { mutableStateOf(ServerDialogMode.ADD)}
+    var dialogMode by remember { mutableStateOf(ServerDialogMode.ADD) }
     var editingServerId by remember { mutableStateOf<Int?>(null) }
     var formState by remember { mutableStateOf(ServerRegisterFormState()) }
     var formError by remember { mutableStateOf<String?>(null) }
 
     // QR 관련 변수들(핸들, 읽어온 값 등등)
     val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
-    val qrTextFlow = remember(savedStateHandle){
-        savedStateHandle?.getStateFlow<String?>("qr_text", "")
-    }
+    val qrTextFlow =
+            remember(savedStateHandle) { savedStateHandle?.getStateFlow<String?>("qr_text", "") }
     val qrText by (qrTextFlow?.collectAsStateWithLifecycle() ?: remember { mutableStateOf("") })
 
     LaunchedEffect(qrText) {
@@ -69,12 +65,13 @@ fun DashboardScreen(
             val parsed = QrServerParser.parse(qrText)
 
             if (parsed != null) {
-                formState = formState.copy(
-                    name = parsed.name ?: "",
-                    ip = parsed.ip ?: "",
-                    port = parsed.port?.toString() ?: "",
-                    hmacKey = parsed.hmacKey ?: ""
-                )
+                formState =
+                        formState.copy(
+                                name = parsed.name ?: "",
+                                ip = parsed.ip ?: "",
+                                port = parsed.port?.toString() ?: "",
+                                hmacKey = parsed.hmacKey ?: ""
+                        )
                 formError = null
                 showDialog = true
             } else {
@@ -84,72 +81,84 @@ fun DashboardScreen(
     }
 
     DashboardContent(
-        title = "대시보드",
-        connectionStatus = connectionStatus,
-        servers = servers,
-        onConnectClick = {_ ,_ ->},
-        onServerClick = { server -> navController.navigate(Screen.ServerDetail.routeWithId(server.id)) },
-        onAddServerClick = { navController.navigate(Screen.QrScan.route) },
-        onEditServerClick = { server -> viewModel.editServer(server.id, server.name, server.ip) },
-        onDeleteServerClick = { server -> viewModel.deleteServer(server.id) }
+            title = "대시보드",
+            connectionStatus = connectionStatus,
+            servers = servers,
+            onConnectClick = { _, _ -> },
+            onServerClick = { server ->
+                navController.navigate(Screen.ServerDetail.routeWithId(server.id))
+            },
+            onAddServerClick = { navController.navigate(Screen.QrScan.route) },
+            onEditServerClick = { server ->
+                viewModel.editServer(server.id, server.name, server.ip)
+            },
+            onDeleteServerClick = { server -> viewModel.deleteServer(server.id) }
     )
 
     if (showDialog) {
         ServerRegisterDialog(
-            mode = dialogMode,
-            state = formState,
-            errorText = formError,
-            onStateChange = { formState = it },
-            onDismiss = {
-                showDialog = false
-                formError = null
-                editingServerId = null
-            },
-            onConfirm = {
-                val err = FormValidator.validate(formState)
-                if (err != null) {
-                    formError = err
-                    return@ServerRegisterDialog
-                }
-                if(dialogMode == ServerDialogMode.ADD){
-                    viewModel.addServer(
-                        name = formState.name,
-                        ip = formState.ip,
-                        status = false
-                    )
-                } else {
-                    val id = editingServerId
-
-                    if(id == null){
-                        formError = "수정 대상 서버가 없습니다"
+                mode = dialogMode,
+                state = formState,
+                errorText = formError,
+                onStateChange = { formState = it },
+                onDismiss = {
+                    showDialog = false
+                    formError = null
+                    editingServerId = null
+                },
+                onConfirm = {
+                    val err = FormValidator.validate(formState)
+                    if (err != null) {
+                        formError = err
                         return@ServerRegisterDialog
                     }
-                    viewModel.editServer(
-                        id = id,
-                        name = formState.name,
-                        ip = formState.ip
+                    viewModel.connect(
+                            formState.ip,
+                            formState.port.toIntOrNull() ?: 443,
+                            formState.hmacKey
                     )
-                }
+                    if (dialogMode == ServerDialogMode.ADD) {
+                        viewModel.addServer(
+                                name = formState.name,
+                                ip = formState.ip,
+                                status = false,
+                                port = formState.port.toIntOrNull() ?: 443,
+                                hmacKey = formState.hmacKey
+                        )
+                    } else {
+                        val id = editingServerId
 
-                showDialog = false
-                formError = null
-                editingServerId = null
-            }
+                        if (id == null) {
+                            formError = "수정 대상 서버가 없습니다"
+                            return@ServerRegisterDialog
+                        }
+                        viewModel.editServer(
+                                id = id,
+                                name = formState.name,
+                                ip = formState.ip,
+                                port = formState.port.toIntOrNull() ?: 443,
+                                hmacKey = formState.hmacKey
+                        )
+                    }
+
+                    showDialog = false
+                    formError = null
+                    editingServerId = null
+                }
         )
     }
 }
 
-
 @Composable
 fun DashboardContent(
-    title: String,
-    connectionStatus: String,
-    servers: List<RegistedServerList>?,
-    onServerClick: (RegistedServerList) -> Unit,
-    onConnectClick: (String, Int) -> Unit,
-    onAddServerClick: () -> Unit,
-    onEditServerClick: (RegistedServerList) -> Unit,
-    onDeleteServerClick: (RegistedServerList) -> Unit,
+        title: String,
+        connectionStatus: String,
+        servers: List<RegistedServerList>?,
+        onServerClick: (RegistedServerList) -> Unit,
+        onConnectClick: (String, Int) -> Unit,
+        onAddServerClick: () -> Unit,
+        onEditServerClick: (RegistedServerList) -> Unit,
+        onDeleteServerClick: (RegistedServerList) -> Unit,
 ) {
     val safeServers = servers ?: emptyList()
 
@@ -158,94 +167,67 @@ fun DashboardContent(
     val onlineCount = safeServers.count { it.status }
     val offlineCount = totalCount - onlineCount
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.padding(25.dp)) {
             Spacer(modifier = Modifier.height(20.dp))
             Text(
-                text = title,
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
+                    text = title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            ServerCountSummary(
-                total = totalCount,
-                online = onlineCount,
-                offline = offlineCount
-            )
+            ServerCountSummary(total = totalCount, online = onlineCount, offline = offlineCount)
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Text(
-                text = "Registered Servers",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Text(text = "Registered Servers", style = MaterialTheme.typography.titleMedium)
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // TODO(modified): 리스트가 남은 공간을 가져가도록 weight(1f)
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // 서버 목록
-                items(
-                    items = safeServers,
-                    key = { it.id }
-                ) { server ->
+                items(items = safeServers, key = { it.id }) { server ->
                     ServerItem(
-                        server = server,
-                        onEdit = { onEditServerClick(it) },
-                        onDelete = { onDeleteServerClick(it) },
-                        onClick = { onServerClick(server) }
+                            server = server,
+                            onEdit = { onEditServerClick(it) },
+                            onDelete = { onDeleteServerClick(it) },
+                            onClick = { onServerClick(server) }
                     )
                 }
 
                 // TODO(modified): 리스트 마지막에 + 추가 아이템
                 item(key = "add_server_item") {
-                    AddServerListItem(
-                        onClick = { onAddServerClick() }
-                    )
+                    AddServerListItem(onClick = { onAddServerClick() })
                 }
             }
         }
     }
 }
 
-
 @Composable
-private fun ServerCountSummary(
-    total: Int,
-    online: Int,
-    offline: Int
-) {
+private fun ServerCountSummary(total: Int, online: Int, offline: Int) {
     // 값 방어 (의도치 않은 음수 등)
     val safeTotal = if (total < 0) 0 else total // TODO(modified)
     val safeOnline = if (online < 0) 0 else online // TODO(modified)
     val safeOffline = if (offline < 0) 0 else offline // TODO(modified)
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Total: $safeTotal",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Text(text = "Total: $safeTotal", style = MaterialTheme.typography.bodyMedium)
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(isOnline = true) // TODO(modified)
@@ -270,29 +252,26 @@ fun DashboardScreenPreview_LargeData() {
     val previewServers = remember {
         List(7) { index ->
             RegistedServerList(
-                id = index + 1,
-                ip = "192.168.0.${index + 10}",
-                name = "Server-${index + 1}",
-                status = index % 2 == 0 // ONLINE / OFFLINE 교차
+                    id = index + 1,
+                    ip = "192.168.0.${index + 10}",
+                    name = "Server-${index + 1}",
+                    status = index % 2 == 0 // ONLINE / OFFLINE 교차
             )
         }
     }
 
     com.SST.server_state_telemetry_client.ui.theme.Server_State_Telemetry_ClientTheme {
-
         DashboardContent(
-            title = "Dashboard (Preview)", // TODO(modified)
-            connectionStatus = "Connected to 192.168.1.100:5000",
-            servers = previewServers,
-            onConnectClick = { host, port ->
-                if (host.isBlank() || port !in 1..65535) return@DashboardContent
-            },
-            onServerClick = { server ->
-                if (server.ip.isBlank()) return@DashboardContent
-            },
-            onDeleteServerClick = {},
-            onEditServerClick = {},
-            onAddServerClick = {}
+                title = "Dashboard (Preview)", // TODO(modified)
+                connectionStatus = "Connected to 192.168.1.100:5000",
+                servers = previewServers,
+                onConnectClick = { host, port ->
+                    if (host.isBlank() || port !in 1..65535) return@DashboardContent
+                },
+                onServerClick = { server -> if (server.ip.isBlank()) return@DashboardContent },
+                onDeleteServerClick = {},
+                onEditServerClick = {},
+                onAddServerClick = {}
         )
     }
 }

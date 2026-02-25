@@ -23,36 +23,37 @@ class MainActivity : ComponentActivity() {
         setContent {
             Server_State_Telemetry_ClientTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
                     NavHost(
-                        navController = navController,
-                        startDestination = Screen.Dashboard.route
+                            navController = navController,
+                            startDestination = Screen.Dashboard.route
                     ) {
                         composable(Screen.Dashboard.route) {
                             DashboardScreen(navController = navController)
                         }
-                        composable(Screen.QrScan.route){
+                        composable(Screen.QrScan.route) {
                             QrScan(
-                                onQrScanned = { qrText ->
-                                    navController.previousBackStackEntry
-                                        ?.savedStateHandle
-                                        ?.set("qr_text", qrText)
-                                    navController.popBackStack()
-                                },
-                                onBack = { navController.popBackStack()}
+                                    onQrScanned = { qrText ->
+                                        navController.previousBackStackEntry?.savedStateHandle?.set(
+                                                "qr_text",
+                                                qrText
+                                        )
+                                        navController.popBackStack()
+                                    },
+                                    onBack = { navController.popBackStack() }
                             )
                         }
                         composable(Screen.ServerDetail.route) { navBackStackEntry ->
                             val idStr = navBackStackEntry.arguments?.getString("id")
                             val id = idStr?.toIntOrNull() ?: -1
-//                            ServerDetailScreen(
-//                                serverId = id,
-//                                onBack = { navController.popBackStack() }
-//                            )
-
+                            com.SST.server_state_telemetry_client.presentation.ui.screens
+                                    .ServerDetailScreen(
+                                            serverId = id,
+                                            onBack = { navController.popBackStack() }
+                                    )
                         }
                     }
                 }
