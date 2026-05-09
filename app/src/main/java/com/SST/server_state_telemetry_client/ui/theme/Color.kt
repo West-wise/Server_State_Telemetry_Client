@@ -2,24 +2,25 @@ package com.SST.server_state_telemetry_client.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Retro PC / Antique Workstation Palette
-val Win95Gray = Color(0xFFC0C0C0) // Classic Windows Gray
-val Win95DarkGray = Color(0xFF808080) // Shadow
-val Win95LightGray = Color(0xFFDFDFDF) // Highlight
-val Win95Blue = Color(0xFF000080) // Title Bar Blue
-val Win95Teal = Color(0xFF008080) // Desktop Background
+// Surfaces
+val Bg          = Color(0xFFF2F4F6)
+val Card        = Color(0xFFFFFFFF)
+val CardAlt     = Color(0xFFF9FAFB)
+val Divider     = Color(0xFFEDEFF2)
 
-val TerminalBlack = Color(0xFF000000)
-val TerminalGreen = Color(0xFF00FF00) // Classic Phosphor Green
-val TerminalAmber = Color(0xFFFFB000) // Amber Monitor
+// Text
+val Text1       = Color(0xFF191F28)
+val Text2       = Color(0xFF4E5968)
+val Text3       = Color(0xFF8B95A1)
+val Text4       = Color(0xFFB0B8C1)
 
-val TextBlack = Color(0xFF000000)
-val TextWhite = Color(0xFFFFFFFF)
-val TextGray = Color(0xFF505050)
+// Accent
+val Primary     = Color(0xFF2D6CDF)
+val PrimarySoft = Color(0xFFEAF1FC)
 
-// Semantic Colors
-val BackgroundColor = Win95Gray
-val SurfaceColor = Win95Gray
-val PrimaryColor = Win95Blue
-val OnPrimaryColor = TextWhite
-val ErrorColor = Color(0xFFFF0000)
+// Status
+val Ok          = Color(0xFF19A974)
+val OkSoft      = Color(0xFFE5F6EE)
+val Bad         = Color(0xFFE5494D)
+val BadSoft     = Color(0xFFFBECEC)
+val Warn        = Color(0xFFF09728)

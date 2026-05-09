@@ -5,17 +5,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.SST.server_state_telemetry_client.ui.theme.Server_State_Telemetry_ClientTheme
 import com.SST.server_state_telemetry_client.domain.model.DiskSummary
 import kotlin.math.max
 import kotlin.math.min
@@ -90,5 +94,23 @@ private fun formatBytes(v: Long): String {
         d >= mb -> String.format("%.2f MB", d / mb)
         d >= kb -> String.format("%.2f KB", d / kb)
         else -> "$v B"
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun PartitionPieRowPreview() {
+    Server_State_Telemetry_ClientTheme {
+        Surface {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                PartitionPieRow("/", used = 42_000_000_000L, total = 100_000_000_000L)
+                PartitionPieRow("/home", used = 180_000_000_000L, total = 500_000_000_000L)
+                PartitionPieRow("/var", used = 8_000_000_000L, total = 50_000_000_000L)
+                PartitionPieRow("/boot", used = 120_000_000L, total = 512_000_000L)
+            }
+        }
     }
 }
