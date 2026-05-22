@@ -18,12 +18,14 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        val dbName = "sst_database.db"
-        return Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, dbName)
-            .fallbackToDestructiveMigration()
+        val dbFile = context.getDatabasePath("sst_database").absolutePath
+        return Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            "sst_database"
+        ).fallbackToDestructiveMigration()
             .build()
     }
-
 
     @Provides
     @Singleton
