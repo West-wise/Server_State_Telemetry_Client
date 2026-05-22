@@ -31,14 +31,14 @@ constructor(private val socketDataSource: SocketDataSource, private val serverDa
                         name = entity.name,
                         status = connected.contains("${entity.ip}:${entity.port}"),
                         port = entity.port,
-                        hmacKey = entity.hmacKey
+                        hashKey = entity.hashKey
                 )
             }
         }
     }
 
-    override suspend fun addServer(name: String, ip: String, port: Int, hmacKey: String) {
-        serverDao.insertServer(ServerEntity(name = name, ip = ip, port = port, hmacKey = hmacKey))
+    override suspend fun addServer(name: String, ip: String, port: Int, hashKey: String) {
+        serverDao.insertServer(ServerEntity(name = name, ip = ip, port = port, hashKey = hashKey))
     }
 
     override suspend fun deleteServer(id: Int) {
@@ -46,14 +46,20 @@ constructor(private val socketDataSource: SocketDataSource, private val serverDa
     }
 
     override suspend fun updateServer(server: RegistedServerList) {
-        // Since RegistedServerList currently doesn't hold port/hmacKey, this is a placeholder.
-        // It requires fetching the entity first or changing the UI model.
-        // We will leave it empty as the user indicated edit functionality needs rework/is
-        // secondary.
+        // RegistedServerList 모델의 정보를 기반으로 로컬 데이터베이스의 서버 정보를 수정함
+        serverDao.updateServer(
+            ServerEntity(
+                id = server.id,
+                name = server.name,
+                ip = server.ip,
+                port = server.port,
+                hashKey = server.hashKey
+            )
+        )
     }
 
-    override suspend fun connect(host: String, port: Int, hmacKey: String) {
-        socketDataSource.connect(host, port, hmacKey)
+    override suspend fun connect(host: String, port: Int, hashKey: String) {
+        socketDataSource.connect(host, port, hashKey)
     }
 
     override suspend fun disconnect(host: String, port: Int) {

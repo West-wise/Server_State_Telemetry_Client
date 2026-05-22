@@ -70,7 +70,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                     name = parsed.name ?: "",
                     ip = parsed.ip ?: "",
                     port = parsed.port?.toString() ?: "",
-                    hmacKey = parsed.hmacKey ?: ""
+                    hashKey = parsed.hashKey ?: ""
                 )
                 formError = null
                 showDialog = true
@@ -92,7 +92,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                 name = server.name,
                 ip = server.ip,
                 port = server.port.toString(),
-                hmacKey = server.hmacKey
+                hashKey = server.hashKey
             )
             dialogMode = ServerDialogMode.EDIT
             formError = null
@@ -121,7 +121,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                 viewModel.connect(
                     formState.ip,
                     formState.port.toIntOrNull() ?: 443,
-                    formState.hmacKey
+                    formState.hashKey
                 )
                 if (dialogMode == ServerDialogMode.ADD) {
                     viewModel.addServer(
@@ -129,7 +129,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                         ip = formState.ip,
                         status = false,
                         port = formState.port.toIntOrNull() ?: 443,
-                        hmacKey = formState.hmacKey
+                        hashKey = formState.hashKey
                     )
                 } else {
                     val id = editingServerId
@@ -142,7 +142,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                         name = formState.name,
                         ip = formState.ip,
                         port = formState.port.toIntOrNull() ?: 443,
-                        hmacKey = formState.hmacKey
+                        hashKey = formState.hashKey
                     )
                 }
                 showDialog = false

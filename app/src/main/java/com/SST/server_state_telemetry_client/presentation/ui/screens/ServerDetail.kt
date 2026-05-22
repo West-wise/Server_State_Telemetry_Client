@@ -83,7 +83,8 @@ fun ServerDetailScreen(
 
     LaunchedEffect(server) {
         if (server != null && server.ip.isNotBlank()) {
-            viewModel.connect(server.ip, server.port, server.hmacKey)
+            // SSTD 프로토콜 사양 변경에 맞추어 hashKey를 전달
+            viewModel.connect(server.ip, server.port, server.hashKey)
         }
     }
 

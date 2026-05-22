@@ -279,14 +279,14 @@ private fun ServerItemOnlinePreview() {
             ServerItem(
                 server = RegistedServerList(
                     id = 1, ip = "192.168.1.100", name = "Production",
-                    status = true, port = 8443, hmacKey = "abc123"
+                    status = true, port = 8443, hashKey = "abc123"
                 ),
                 onClick = {}, onEdit = {}, onDelete = {}
             )
             ServerItem(
                 server = RegistedServerList(
                     id = 2, ip = "10.0.0.5", name = "Staging",
-                    status = false, port = 443, hmacKey = "def456"
+                    status = false, port = 443, hashKey = "def456"
                 ),
                 onClick = {}, onEdit = {}, onDelete = {}
             )

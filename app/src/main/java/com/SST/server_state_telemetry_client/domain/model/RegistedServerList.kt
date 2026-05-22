@@ -6,5 +6,5 @@ data class RegistedServerList(
         val name: String, // 등록시 설정한 별칭
         val status: Boolean, // 등록은 되어있으나 서버가 활성화 되어있는지.
         val port: Int = 443,
-        val hmacKey: String = ""
+        val hashKey: String = ""
 )

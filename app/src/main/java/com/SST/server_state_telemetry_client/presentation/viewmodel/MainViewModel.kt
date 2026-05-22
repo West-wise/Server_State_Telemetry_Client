@@ -30,11 +30,11 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
     init {
         viewModelScope.launch {
             try {
-                // Auto-connect to all registered servers on startup
+                // 앱 기동 시 등록된 모든 서버에 자동 소켓 연결을 시도함 (SSTD 사양 변경)
                 val initialServers = repository.getAllServers().first()
-                initialServers.forEach { server -> connect(server.ip, server.port, server.hmacKey) }
+                initialServers.forEach { server -> connect(server.ip, server.port, server.hashKey) }
             } catch (e: Exception) {
-                // Ignore exceptions during auto-connect
+                // 자동 연결 시 발생하는 오류는 무시함
             }
         }
     }
@@ -47,10 +47,10 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
         return repository.getServerState(host, port)
     }
 
-    fun connect(host: String, port: Int, hmacKey: String = "") {
+    fun connect(host: String, port: Int, hashKey: String = "") {
         viewModelScope.launch {
             try {
-                repository.connect(host, port, hmacKey)
+                repository.connect(host, port, hashKey)
                 _connectionStatus.value = "Connected to $host:$port"
             } catch (e: Exception) {
                 _connectionStatus.value = "Error: ${e.message}"
@@ -58,13 +58,13 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
         }
     }
 
-    // TODO(modified): 서버 추가 (id 유니크 보장)
+    // 서버를 로컬 데이터베이스에 새로 등록하는 함수
     fun addServer(
             name: String,
             ip: String,
             status: Boolean = false,
             port: Int = 443,
-            hmacKey: String = ""
+            hashKey: String = ""
     ) {
         val safeName = name.trim()
         val safeIp = ip.trim()
@@ -72,9 +72,9 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
         if (safeName.isBlank() || safeIp.isBlank()) return
 
         viewModelScope.launch {
-            repository.addServer(name = safeName, ip = safeIp, port = port, hmacKey = hmacKey)
-            // Attempt auto-connect upon adding
-            connect(safeIp, port, hmacKey)
+            repository.addServer(name = safeName, ip = safeIp, port = port, hashKey = hashKey)
+            // 서버 등록 즉시 연결을 자동 시도함
+            connect(safeIp, port, hashKey)
         }
     }
 
@@ -98,7 +98,7 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
             ip: String,
             status: Boolean? = null,
             port: Int? = null,
-            hmacKey: String? = null
+            hashKey: String? = null
     ) {
         val safeName = name.trim()
         val safeIp = ip.trim()
@@ -113,7 +113,7 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
                                 ip = safeIp,
                                 status = status ?: targetServer.status,
                                 port = port ?: targetServer.port,
-                                hmacKey = hmacKey ?: targetServer.hmacKey
+                                hashKey = hashKey ?: targetServer.hashKey
                         )
                 )
             }

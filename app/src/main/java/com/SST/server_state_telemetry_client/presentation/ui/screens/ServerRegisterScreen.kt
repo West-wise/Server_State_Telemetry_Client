@@ -47,7 +47,7 @@ data class ServerRegisterFormState(
     val name: String = "",
     val ip: String = "",
     val port: String = "",
-    val hmacKey: String = ""
+    val hashKey: String = ""
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,8 +96,8 @@ fun ServerRegisterSheet(
             FilledField("포트", state.port, mono = true, keyboard = KeyboardType.Number) {
                 onStateChange(state.copy(port = it))
             }
-            FilledField("HMAC 키", state.hmacKey, mono = true, password = true) {
-                onStateChange(state.copy(hmacKey = it))
+            FilledField("Hash 키", state.hashKey, mono = true, password = true) {
+                onStateChange(state.copy(hashKey = it))
             }
 
             Spacer(Modifier.height(12.dp))
@@ -182,7 +182,7 @@ private fun ServerRegisterFormAddPreview() {
                 FilledField("서버 별칭", "Production Server") {}
                 FilledField("IP 주소", "192.168.1.100", mono = true) {}
                 FilledField("포트", "8443", mono = true) {}
-                FilledField("HMAC 키", "supersecretkey12", mono = true, password = true) {}
+                FilledField("Hash 키", "supersecretkey12", mono = true, password = true) {}
 
                 Spacer(Modifier.height(12.dp))
 
@@ -234,7 +234,7 @@ private fun ServerRegisterFormEditPreview() {
                 FilledField("서버 별칭", "Staging") {}
                 FilledField("IP 주소", "10.0.0.5", mono = true) {}
                 FilledField("포트", "99999", mono = true) {}
-                FilledField("HMAC 키", "", mono = true, password = true) {}
+                FilledField("Hash 키", "", mono = true, password = true) {}
 
                 Spacer(Modifier.height(12.dp))
 
