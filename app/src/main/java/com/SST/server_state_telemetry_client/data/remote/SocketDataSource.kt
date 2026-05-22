@@ -8,14 +8,6 @@ import io.ktor.network.sockets.openReadChannel
 import io.ktor.network.sockets.openWriteChannel
 import io.ktor.network.tls.tls
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.writeFully
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.util.concurrent.ConcurrentHashMap
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,11 +17,23 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class SocketDataSource @Inject constructor() {
 
-    data class ConnectionSession(val socket: Socket, val inputChannel: ByteReadChannel)
+    data class ConnectionSession(
+        val socket: Socket,
+        val inputChannel: ByteReadChannel,
+        var requestIdCounter: AtomicInteger = AtomicInteger(1)
+    )
 
     private val sockets = mutableMapOf<String, ConnectionSession>()
     private val mutex = Mutex()
@@ -61,7 +65,7 @@ class SocketDataSource @Inject constructor() {
                             }
                     val channel = newSocket.openReadChannel()
                     val writeChannel = newSocket.openWriteChannel(autoFlush = true)
-
+                    val session = ConnectionSession(newSocket, channel)
                     // Construct CMD_AUTH (0x0001) Secure Header
                     val header = ByteBuffer.allocate(42).order(ByteOrder.LITTLE_ENDIAN)
                     header.putInt(0x53535444) // magic
@@ -69,7 +73,7 @@ class SocketDataSource @Inject constructor() {
                     header.put(0x01.toByte()) // type: request
                     header.putShort(0.toShort()) // client_id
                     header.putShort(0x0001.toShort()) // cmd_mask (CMD_AUTH)
-                    header.putInt(1) // request_id
+                    header.putInt(session.requestIdCounter.getAndIncrement()) // request_id, 현재 항상 1로 하드코딩되어있으면 안됨
                     header.putLong(System.currentTimeMillis()) // timestamp
                     header.putInt(0) // body_len
 
@@ -99,7 +103,7 @@ class SocketDataSource @Inject constructor() {
                     // Send Auth Packet
                     writeChannel.writeFully(currentBytes, 0, 42)
 
-                    val session = ConnectionSession(newSocket, channel)
+
 
                     mutex.withLock {
                         sockets[key]?.socket?.close()
