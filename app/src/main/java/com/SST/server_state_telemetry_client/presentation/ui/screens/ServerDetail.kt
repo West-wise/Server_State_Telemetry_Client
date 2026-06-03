@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -83,8 +84,7 @@ fun ServerDetailScreen(
 
     LaunchedEffect(server) {
         if (server != null && server.ip.isNotBlank()) {
-            // SSTD 프로토콜 사양 변경에 맞추어 hashKey를 전달
-            viewModel.connect(server.ip, server.port, server.hashKey)
+            viewModel.connect(server.ip, server.port, server.pubKey)
         }
     }
 
@@ -131,7 +131,8 @@ fun ServerDetailScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Bg),
+            .background(Bg)
+            .systemBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = 20.dp, end = 20.dp, top = 14.dp, bottom = 20.dp

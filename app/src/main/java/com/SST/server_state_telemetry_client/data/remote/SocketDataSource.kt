@@ -1,5 +1,8 @@
 package com.SST.server_state_telemetry_client.data.remote
 
+import com.SST.server_state_telemetry_client.domain.model.DiskSummary
+import com.SST.server_state_telemetry_client.domain.model.FdInfo
+import com.SST.server_state_telemetry_client.domain.model.NetInfo
 import com.SST.server_state_telemetry_client.domain.model.SystemStats
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.Socket
@@ -7,6 +10,7 @@ import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.openReadChannel
 import io.ktor.network.sockets.openWriteChannel
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readFully
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,10 +20,10 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,7 +33,7 @@ class SocketDataSource @Inject constructor() {
     data class ConnectionSession(
         val socket: Socket,
         val inputChannel: ByteReadChannel,
-        var requestIdCounter: AtomicInteger = AtomicInteger(1)
+        val noiseSession: NoiseSession
     )
 
     private val sockets = mutableMapOf<String, ConnectionSession>()
@@ -41,81 +45,60 @@ class SocketDataSource @Inject constructor() {
     val connectedHosts: StateFlow<Set<String>> = _connectedHosts.asStateFlow()
 
     /**
-     * 지정된 호스트에 일반 TCP 소켓 연결을 맺고 인증 패킷(CMD_AUTH)을 전송합니다.
-     * SSTD 프로토콜 변경에 따라 40바이트 헤더 및 SipHash-2-4 128비트 서명을 사용합니다.
+     * TCP 연결 후 Noise XX 핸드셰이크를 수행한다.
+     * pubKey: 서버 정적 X25519 공개키 (64자리 hex = 32바이트).
+     * 핀닝 불일치 또는 핸드셰이크 실패 시 연결이 수립되지 않는다.
      */
-    suspend fun connect(host: String, port: Int, hashKey: String) {
+    suspend fun connect(host: String, port: Int, pubKey: String) {
         val key = "$host:$port"
-        android.util.Log.d("SocketDataSource", "Attempting connection to $key")
+        android.util.Log.d("SocketDataSource", "Connecting to $key")
+
+        val pinnedPub = try {
+            pubKey.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        } catch (e: Exception) {
+            android.util.Log.e("SocketDataSource", "Invalid pubKey hex for $key")
+            return
+        }
+        if (pinnedPub.size != 32) {
+            android.util.Log.e("SocketDataSource", "pubKey must be 32 bytes, got ${pinnedPub.size}")
+            return
+        }
 
         val hostMutex = hostMutexes.getOrPut(key) { Mutex() }
         hostMutex.withLock {
             mutex.withLock {
-                val existingSession = sockets[key]
-                if (existingSession != null && !existingSession.inputChannel.isClosedForRead) {
-                    android.util.Log.d("SocketDataSource", "Connection to $key already active.")
+                val existing = sockets[key]
+                if (existing != null && !existing.inputChannel.isClosedForRead) {
+                    android.util.Log.d("SocketDataSource", "Already connected to $key")
                     return
                 }
             }
 
             withContext(Dispatchers.IO) {
                 try {
-                    // SSTD 사양에 맞춰 TLS 연결을 해제하고 일반 TCP 소켓으로 직접 연결
                     val newSocket = aSocket(selectorManager).tcp().connect(host, port)
                     val channel = newSocket.openReadChannel()
                     val writeChannel = newSocket.openWriteChannel(autoFlush = true)
-                    val session = ConnectionSession(newSocket, channel)
+                    val noiseSession = NoiseSession()
 
-                    // cmd_mask가 제거된 40바이트 SecureHeader 버퍼 할당
-                    val header = ByteBuffer.allocate(40).order(ByteOrder.LITTLE_ENDIAN)
-                    header.putInt(0x53535444) // magic
-                    header.put(0x01.toByte()) // version
-                    header.put(0x01.toByte()) // type: request
-                    header.putShort(0.toShort()) // client_id
-                    // cmd_mask(2바이트)가 제거됨에 따라 바로 request_id를 배치
-                    header.putInt(session.requestIdCounter.getAndIncrement()) // request_id
-                    header.putLong(System.currentTimeMillis()) // timestamp
-                    header.putInt(0) // body_len
-                    // auth_tag (16바이트) 자리는 0바이트로 패딩해 둔 뒤 해시 계산을 수행
-                    val authPadding = ByteArray(16)
-                    header.put(authPadding)
-
-                    val currentBytes = header.array()
-                    try {
-                        val cleanKey = hashKey.trim()
-                        // 16바이트 SipHash 키는 hex-encoded 스트링 기준으로 정확히 32자여야 함
-                        if (cleanKey.length == 32) {
-                            val keyBytes = cleanKey.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                            // auth_tag를 0으로 채운 전체 40바이트 패킷에 대해 SipHash-2-4 128비트 해싱 수행
-                            val authTag = SipHash.hash128(keyBytes, currentBytes)
-                            // 계산된 16바이트 해시값을 헤더의 24~39 오프셋(auth_tag) 위치에 덮어씌움
-                            System.arraycopy(authTag, 0, currentBytes, 24, 16)
-                        } else {
-                            android.util.Log.e(
-                                "SocketDataSource",
-                                "Invalid hash key length: ${cleanKey.length}"
-                            )
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e(
-                            "SocketDataSource",
-                            "SipHash calculation failed: ${e.message}"
-                        )
+                    val ok = withTimeout(10_000L) {
+                        noiseSession.handshakeClient(channel, writeChannel, pinnedPub)
                     }
 
-                    // 인증 패킷 40바이트를 소켓으로 전송
-                    writeChannel.writeFully(currentBytes, 0, 40)
+                    if (!ok) {
+                        newSocket.close()
+                        android.util.Log.e("SocketDataSource", "Handshake failed for $key (key mismatch or crypto error)")
+                        return@withContext
+                    }
 
                     mutex.withLock {
                         sockets[key]?.socket?.close()
-                        sockets[key] = session
+                        sockets[key] = ConnectionSession(newSocket, channel, noiseSession)
                         _connectedHosts.value = _connectedHosts.value + key
                     }
+                    android.util.Log.d("SocketDataSource", "Handshake complete for $key")
                 } catch (e: Exception) {
-                    android.util.Log.e(
-                        "SocketDataSource",
-                        "Failed to connect to $key: ${e.message}"
-                    )
+                    android.util.Log.e("SocketDataSource", "Connect failed for $key: ${e.message}")
                 }
             }
         }
@@ -136,122 +119,100 @@ class SocketDataSource @Inject constructor() {
     }
 
     /**
-     * 소켓 채널로부터 원격 서버 상태 텔레메트리 패킷을 지속적으로 수신하여 파싱합니다.
-     * SSTD 프로토콜 변경에 따라 40바이트 헤더 구조에 맞추어 디코딩을 수행합니다.
+     * 전송 단계 프레임 [4B LE 길이][암호문] 을 수신·복호화·파싱하여 SystemStats 를 방출한다.
      */
     fun receiveData(host: String, port: Int): Flow<SystemStats> = flow {
         while (true) {
-            val channel = mutex.withLock { sockets["$host:$port"]?.inputChannel }
+            val session = mutex.withLock { sockets["$host:$port"] }
 
-            if (channel == null || channel.isClosedForRead) {
-                android.util.Log.w(
-                    "SocketDataSource",
-                    "receiveData loop for $host:$port waiting... Channel is null or closed"
-                )
+            if (session == null || session.inputChannel.isClosedForRead) {
+                android.util.Log.w("SocketDataSource", "receiveData: no active session for $host:$port, waiting")
                 kotlinx.coroutines.delay(1000L)
                 continue
             }
 
-            val ch = channel
+            val ch = session.inputChannel
+            val noise = session.noiseSession
+
             try {
                 while (!ch.isClosedForRead) {
-                    // cmd_mask가 제거된 새로운 40바이트 규격의 SecureHeader를 수신
-                    val headerBytes = ByteArray(40)
-                    ch.readFully(headerBytes, 0, 40)
-                    val headerBuf = java.nio.ByteBuffer.wrap(headerBytes)
-                        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    // 프레임 길이 (4B LE)
+                    val lenBuf = ByteArray(4)
+                    ch.readFully(lenBuf)
+                    val ctLen = (lenBuf[0].toInt() and 0xff) or
+                        ((lenBuf[1].toInt() and 0xff) shl 8) or
+                        ((lenBuf[2].toInt() and 0xff) shl 16) or
+                        ((lenBuf[3].toInt() and 0xff) shl 24)
 
-                    val magic = headerBuf.int
-                    if (magic != 0x53535444) {
-                        // 유효하지 않은 매직넘버 유입 시 루프를 통해 다음 스트림 검색
-                        continue
+                    if (ctLen <= 0 || ctLen > 65535) {
+                        android.util.Log.w("SocketDataSource", "Invalid frame length $ctLen from $host:$port")
+                        break
                     }
 
-                    val version = headerBuf.get()
-                    val type = headerBuf.get()
-                    val clientId = headerBuf.short
-                    // cmd_mask(2바이트)가 제거되었으므로 즉시 request_id와 timestamp, bodyLen을 파싱
-                    val requestId = headerBuf.int
-                    val timestamp = headerBuf.long
-                    val bodyLen = headerBuf.int
-                    val authTag = ByteArray(16)
-                    headerBuf.get(authTag)
+                    val ct = ByteArray(ctLen)
+                    ch.readFully(ct)
 
-                    android.util.Log.d(
-                        "SocketDataSource",
-                        "Header parsed from $host:$port -> Magic: ${magic.toString(16)}, type: ${type.toInt()}, bodyLen: $bodyLen"
-                    )
+                    val plaintext = noise.decrypt(ct)
+                    if (plaintext == null) {
+                        android.util.Log.e("SocketDataSource", "Decrypt failed for $host:$port — closing")
+                        break
+                    }
 
-                    // SystemStat 메시지 타입(0x11) 및 규격 크기(134바이트) 검증
-                    if (type.toInt() == 0x11 && bodyLen == 134) {
-                        // SystemStats 134바이트 본문 데이터를 수신
-                        val bodyBytes = ByteArray(134)
-                        ch.readFully(bodyBytes, 0, 134)
-                        val bodyBuf = java.nio.ByteBuffer.wrap(bodyBytes)
-                            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    if (plaintext.size < 24) continue
 
-                        val validMask = bodyBuf.short.toInt() and 0xFFFF
-                        bodyBuf.short // reserved 영역 스킵
-                        val cpuUsage = bodyBuf.get().toInt() and 0xFF
-                        val memUsage = bodyBuf.get().toInt() and 0xFF
+                    val buf = ByteBuffer.wrap(plaintext).order(ByteOrder.LITTLE_ENDIAN)
+                    val magic = buf.int
+                    if (magic != 0x53535444) continue
 
-                        // 수신/송신 네트워크 정보 파싱
-                        val rxBytesPs = bodyBuf.long
-                        val rxPacketPs = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val rxErrPs = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val rxDropPs = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val netRx = com.SST.server_state_telemetry_client.domain.model.NetInfo(
-                            rxBytesPs,
-                            rxPacketPs,
-                            rxErrPs,
-                            rxDropPs
+                    buf.get()          // version
+                    val type = buf.get()
+                    buf.short          // clientId
+                    buf.int            // requestId
+                    buf.long           // timestamp
+                    val bodyLen = buf.int
+
+                    if (type == 0x11.toByte() && bodyLen == 134 && plaintext.size >= 158) {
+                        val body = ByteBuffer.wrap(plaintext, 24, 134).order(ByteOrder.LITTLE_ENDIAN)
+
+                        val validMask = body.short.toInt() and 0xFFFF
+                        body.short // reserved
+                        val cpuUsage = body.get().toInt() and 0xFF
+                        val memUsage = body.get().toInt() and 0xFF
+
+                        val rxBytesPs  = body.long
+                        val rxPacketPs = body.int.toLong() and 0xFFFFFFFFL
+                        val rxErrPs    = body.int.toLong() and 0xFFFFFFFFL
+                        val rxDropPs   = body.int.toLong() and 0xFFFFFFFFL
+                        val netRx = NetInfo(rxBytesPs, rxPacketPs, rxErrPs, rxDropPs)
+
+                        val txBytesPs  = body.long
+                        val txPacketPs = body.int.toLong() and 0xFFFFFFFFL
+                        val txErrPs    = body.int.toLong() and 0xFFFFFFFFL
+                        val txDropPs   = body.int.toLong() and 0xFFFFFFFFL
+                        val netTx = NetInfo(txBytesPs, txPacketPs, txErrPs, txDropPs)
+
+                        val procCount          = body.int.toLong() and 0xFFFFFFFFL
+                        val totalProcCount     = body.int.toLong() and 0xFFFFFFFFL
+                        val netUserCount       = body.short.toInt() and 0xFFFF
+                        val connectedUserCount = body.short.toInt() and 0xFFFF
+                        val uptimeSecs         = body.int.toLong() and 0xFFFFFFFFL
+
+                        val allocatedFdCnt = body.int.toLong() and 0xFFFFFFFFL
+                        val usingFdCnt     = body.int.toLong() and 0xFFFFFFFFL
+                        val fdInfo = FdInfo(allocatedFdCnt, usingFdCnt)
+
+                        val disk = DiskSummary(
+                            totalRoot = body.long, usedRoot = body.long,
+                            totalHome = body.long, usedHome = body.long,
+                            totalVar  = body.long, usedVar  = body.long,
+                            totalBoot = body.long, usedBoot = body.long
                         )
 
-                        val txBytesPs = bodyBuf.long
-                        val txPacketPs = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val txErrPs = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val txDropPs = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val netTx = com.SST.server_state_telemetry_client.domain.model.NetInfo(
-                            txBytesPs,
-                            txPacketPs,
-                            txErrPs,
-                            txDropPs
+                        android.util.Log.d(
+                            "SocketDataSource",
+                            "Stats from $host:$port — CPU=$cpuUsage%, MEM=$memUsage%"
                         )
-
-                        val procCount = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val totalProcCount = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val netUserCount = bodyBuf.short.toInt() and 0xFFFF
-                        val connectedUserCount = bodyBuf.short.toInt() and 0xFFFF
-                        val uptimeSecs = bodyBuf.int.toLong() and 0xFFFFFFFFL
-
-                        val allocatedFdCnt = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val usingFdCnt = bodyBuf.int.toLong() and 0xFFFFFFFFL
-                        val fdInfo = com.SST.server_state_telemetry_client.domain.model.FdInfo(
-                            allocatedFdCnt,
-                            usingFdCnt
-                        )
-
-                        // 각 마운트별 디스크 사용량 분석 및 기가바이트(GB) 매핑을 위한 데이터
-                        val totalRoot = bodyBuf.long
-                        val usedRoot = bodyBuf.long
-                        val totalHome = bodyBuf.long
-                        val usedHome = bodyBuf.long
-                        val totalVar = bodyBuf.long
-                        val usedVar = bodyBuf.long
-                        val totalBoot = bodyBuf.long
-                        val usedBoot = bodyBuf.long
-                        val diskSummary = com.SST.server_state_telemetry_client.domain.model.DiskSummary(
-                            totalRoot,
-                            usedRoot,
-                            totalHome,
-                            usedHome,
-                            totalVar,
-                            usedVar,
-                            totalBoot,
-                            usedBoot
-                        )
-
-                        val stats = com.SST.server_state_telemetry_client.domain.model.SystemStats(
+                        emit(SystemStats(
                             validMask = validMask,
                             cpuUsage = cpuUsage,
                             memUsage = memUsage,
@@ -263,29 +224,14 @@ class SocketDataSource @Inject constructor() {
                             connectedUserCount = connectedUserCount,
                             uptimeSecs = uptimeSecs,
                             fdInfo = fdInfo,
-                            disk = diskSummary
-                        )
-                        android.util.Log.d(
-                            "SocketDataSource",
-                            "Parsed SystemStats from $host:$port: CPU=$cpuUsage, RAM=$memUsage, Rx=${netRx.bytePerSec}, Tx=${netTx.bytePerSec}, users=$connectedUserCount"
-                        )
-                        emit(stats)
-                    } else if (bodyLen > 0) {
-                        // 미정의 바디 페이로드 유입 시 안전하게 건너뛰도록 오프셋 처리
-                        android.util.Log.w(
-                            "SocketDataSource",
-                            "Skipping unknown payload from $host:$port, length: $bodyLen, type: ${type.toInt()}"
-                        )
-                        val skipBytes = ByteArray(bodyLen)
-                        ch.readFully(skipBytes, 0, bodyLen)
+                            disk = disk
+                        ))
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                android.util.Log.e(
-                    "SocketDataSource",
-                    "Socket error or disconnected from $host:$port: ${e.message}"
-                )
-                e.printStackTrace()
+                android.util.Log.e("SocketDataSource", "Socket error from $host:$port: ${e.message}")
                 mutex.withLock { _connectedHosts.value = _connectedHosts.value - "$host:$port" }
             }
             kotlinx.coroutines.delay(1000L)

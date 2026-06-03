@@ -17,10 +17,7 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
-    /**
-     * SQLite 3.25 미만 구형 OS 호환성을 완벽하게 보장하기 위해,
-     * RENAME COLUMN 대신 새 임시 테이블을 복사하여 리네임하는 안전한 마이그레이션 수행
-     */
+    // v1→v2: hmacKey → hashKey (Gen2 SipHash 마이그레이션)
     val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("""
@@ -32,9 +29,26 @@ object DatabaseModule {
                     hashKey TEXT NOT NULL DEFAULT ''
                 )
             """)
-            // name, ip, port 등 기본 서버 연결 설정은 그대로 유지
-            // 기존 64자 hmacKey는 신규 32자 hashKey와 무관하므로 기본 빈 문자열로 치환 유도
             db.execSQL("INSERT INTO servers_new (id, name, ip, port, hashKey) SELECT id, name, ip, port, '' FROM servers")
+            db.execSQL("DROP TABLE servers")
+            db.execSQL("ALTER TABLE servers_new RENAME TO servers")
+        }
+    }
+
+    // v2→v3: hashKey → pubKey (Gen3 Noise XX 마이그레이션)
+    // 기존 hashKey(SipHash 키)는 pubKey(X25519 공개키)와 호환 불가 → 빈 값으로 치환
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE servers_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    name TEXT NOT NULL,
+                    ip TEXT NOT NULL,
+                    port INTEGER NOT NULL,
+                    pubKey TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            db.execSQL("INSERT INTO servers_new (id, name, ip, port) SELECT id, name, ip, port FROM servers")
             db.execSQL("DROP TABLE servers")
             db.execSQL("ALTER TABLE servers_new RENAME TO servers")
         }
@@ -47,7 +61,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "sst_database"
-        ).addMigrations(MIGRATION_1_2)
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -58,4 +72,3 @@ object DatabaseModule {
         return database.serverDao()
     }
 }
-

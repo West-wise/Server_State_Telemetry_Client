@@ -22,6 +22,8 @@ mlkit = "17.3.0"
 room = "2.6.1"
 roomRuntimeAndroid = "2.8.4"
 roomRuntimeJvm = "2.8.4"
+lazysodium = "5.2.0"
+jna = "5.14.0"
 
 [libraries]
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
@@ -63,6 +65,8 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
 androidx-room-runtime-android = { group = "androidx.room", name = "room-runtime-android", version.ref = "roomRuntimeAndroid" }
 androidx-room-runtime-jvm = { group = "androidx.room", name = "room-runtime-jvm", version.ref = "roomRuntimeJvm" }
+lazysodium-android = { group = "com.goterl", name = "lazysodium-android", version.ref = "lazysodium" }
+jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 
 
 [plugins]

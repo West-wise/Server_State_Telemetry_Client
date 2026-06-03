@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
@@ -70,7 +71,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                     name = parsed.name ?: "",
                     ip = parsed.ip ?: "",
                     port = parsed.port?.toString() ?: "",
-                    hashKey = parsed.hashKey ?: ""
+                    pubKey = parsed.pubKey ?: ""
                 )
                 formError = null
                 showDialog = true
@@ -92,7 +93,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                 name = server.name,
                 ip = server.ip,
                 port = server.port.toString(),
-                hashKey = server.hashKey
+                pubKey = server.pubKey
             )
             dialogMode = ServerDialogMode.EDIT
             formError = null
@@ -121,7 +122,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                 viewModel.connect(
                     formState.ip,
                     formState.port.toIntOrNull() ?: 443,
-                    formState.hashKey
+                    formState.pubKey
                 )
                 if (dialogMode == ServerDialogMode.ADD) {
                     viewModel.addServer(
@@ -129,7 +130,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                         ip = formState.ip,
                         status = false,
                         port = formState.port.toIntOrNull() ?: 443,
-                        hashKey = formState.hashKey
+                        pubKey = formState.pubKey
                     )
                 } else {
                     val id = editingServerId
@@ -142,7 +143,7 @@ fun DashboardScreen(navController: NavController, viewModel: MainViewModel = hil
                         name = formState.name,
                         ip = formState.ip,
                         port = formState.port.toIntOrNull() ?: 443,
-                        hashKey = formState.hashKey
+                        pubKey = formState.pubKey
                     )
                 }
                 showDialog = false
@@ -170,6 +171,7 @@ fun DashboardContent(
         modifier = Modifier
             .fillMaxSize()
             .background(Bg)
+            .systemBarsPadding()
     ) {
         // Header
         Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp)) {

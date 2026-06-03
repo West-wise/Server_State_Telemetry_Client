@@ -30,27 +30,23 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
     init {
         viewModelScope.launch {
             try {
-                // 앱 기동 시 등록된 모든 서버에 자동 소켓 연결을 시도함 (SSTD 사양 변경)
                 val initialServers = repository.getAllServers().first()
-                initialServers.forEach { server -> connect(server.ip, server.port, server.hashKey) }
-            } catch (e: Exception) {
-                // 자동 연결 시 발생하는 오류는 무시함
-            }
+                initialServers.forEach { server -> connect(server.ip, server.port, server.pubKey) }
+            } catch (_: Exception) {}
         }
     }
 
     fun getServerState(
             host: String,
             port: Int
-    ): kotlinx.coroutines.flow.Flow<
-            com.SST.server_state_telemetry_client.domain.model.SystemStats> {
+    ): kotlinx.coroutines.flow.Flow<com.SST.server_state_telemetry_client.domain.model.SystemStats> {
         return repository.getServerState(host, port)
     }
 
-    fun connect(host: String, port: Int, hashKey: String = "") {
+    fun connect(host: String, port: Int, pubKey: String = "") {
         viewModelScope.launch {
             try {
-                repository.connect(host, port, hashKey)
+                repository.connect(host, port, pubKey)
                 _connectionStatus.value = "Connected to $host:$port"
             } catch (e: Exception) {
                 _connectionStatus.value = "Error: ${e.message}"
@@ -58,23 +54,20 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
         }
     }
 
-    // 서버를 로컬 데이터베이스에 새로 등록하는 함수
     fun addServer(
             name: String,
             ip: String,
             status: Boolean = false,
             port: Int = 443,
-            hashKey: String = ""
+            pubKey: String = ""
     ) {
         val safeName = name.trim()
         val safeIp = ip.trim()
-
         if (safeName.isBlank() || safeIp.isBlank()) return
 
         viewModelScope.launch {
-            repository.addServer(name = safeName, ip = safeIp, port = port, hashKey = hashKey)
-            // 서버 등록 즉시 연결을 자동 시도함
-            connect(safeIp, port, hashKey)
+            repository.addServer(name = safeName, ip = safeIp, port = port, pubKey = pubKey)
+            connect(safeIp, port, pubKey)
         }
     }
 
@@ -98,7 +91,7 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
             ip: String,
             status: Boolean? = null,
             port: Int? = null,
-            hashKey: String? = null
+            pubKey: String? = null
     ) {
         val safeName = name.trim()
         val safeIp = ip.trim()
@@ -113,7 +106,7 @@ class MainViewModel @Inject constructor(private val repository: TelemetryReposit
                                 ip = safeIp,
                                 status = status ?: targetServer.status,
                                 port = port ?: targetServer.port,
-                                hashKey = hashKey ?: targetServer.hashKey
+                                pubKey = pubKey ?: targetServer.pubKey
                         )
                 )
             }

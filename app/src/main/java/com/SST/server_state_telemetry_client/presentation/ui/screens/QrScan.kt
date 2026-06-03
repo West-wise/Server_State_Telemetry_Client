@@ -459,7 +459,7 @@ private fun QrScanOverlayPreview() {
 }
 
 object QrServerParser {
-    data class Parsed(val name: String?, val ip: String?, val port: Int?, val hashKey: String?)
+    data class Parsed(val name: String?, val ip: String?, val port: Int?, val pubKey: String?)
 
     fun parse(qrText: String?): Parsed? {
         if (qrText.isNullOrBlank()) return null
@@ -473,11 +473,11 @@ object QrServerParser {
             val name = uri.getQueryParameter("name")?.take(64)
             val ip = uri.getQueryParameter("ip")?.take(64)
             val portStr = uri.getQueryParameter("port")?.take(6)
-            // SSTD 사양 변경에 따라 hmac 대신 hash_key 파라미터 파싱
-            val hashKey = uri.getQueryParameter("hash_key")?.take(64)
+            // Gen3: pub_key = 서버 X25519 정적 공개키 (64자리 hex = 32바이트)
+            val pubKey = uri.getQueryParameter("pub_key")?.take(128)
             val port = portStr?.toIntOrNull()?.takeIf { it in 1..65535 }
 
-            Parsed(name = name, ip = ip, port = port, hashKey = hashKey)
+            Parsed(name = name, ip = ip, port = port, pubKey = pubKey)
         } catch (_: Exception) {
             null
         }
@@ -491,7 +491,7 @@ object FormValidator {
         val name = form.name.trim()
         val ip = form.ip.trim()
         val port = form.port.trim()
-        val hashKey = form.hashKey.trim()
+        val pubKey = form.pubKey.trim()
 
         if (name.isBlank()) return "서버 별칭을 입력하세요."
         if (name.length > 64) return "서버 별칭이 너무 깁니다."
@@ -501,11 +501,11 @@ object FormValidator {
         val p = port.toIntOrNull() ?: return "포트는 숫자여야 합니다."
         if (p !in 1..65535) return "포트 범위가 올바르지 않습니다."
 
-        // SipHash 128비트 키 검증: 정확히 32자 hex 스트링 (16바이트) 형태 보장
-        if (hashKey.isBlank()) return "Hash 키를 입력하세요."
-        if (hashKey.length != 32) return "Hash 키는 정확히 32자리 hex여야 합니다."
-        if (!hashKey.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
-            return "Hash 키는 hex(0-9, a-f)만 사용해야 합니다."
+        // X25519 공개키: 정확히 64자리 hex (32바이트)
+        if (pubKey.isBlank()) return "서버 공개키를 입력하세요."
+        if (pubKey.length != 64) return "공개키는 정확히 64자리 hex여야 합니다."
+        if (!pubKey.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+            return "공개키는 hex(0-9, a-f)만 사용해야 합니다."
         }
 
         return null

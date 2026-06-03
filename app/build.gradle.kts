@@ -88,6 +88,14 @@ dependencies {
 
     implementation(libs.androidx.material.icons.extended)
 
+    // Noise XX 핸드셰이크: lazysodium-android (libsodium JNI)
+    // JNA transitive .jar 는 Android에서 .aar 과 충돌하므로 exclude 후 .aar 만 추가
+    implementation(libs.lazysodium.android) {
+        artifact { type = "aar" }
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation(libs.jna) { artifact { type = "aar" } }
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

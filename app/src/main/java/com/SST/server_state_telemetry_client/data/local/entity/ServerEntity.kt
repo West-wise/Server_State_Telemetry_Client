@@ -9,5 +9,5 @@ data class ServerEntity(
         val name: String,
         val ip: String,
         val port: Int,
-        val hashKey: String
+        val pubKey: String
 )
