@@ -121,6 +121,10 @@ cd SSTC
 
 > Windows: `gradlew.bat assembleDebug`
 
+SST-AX Task의 후보 커밋은 GitHub Actions의 수동 빌드로 검증할 수 있습니다.
+Task ID·고정 commit SHA와 결과 JSON의 사용 방법은
+[원격 빌드 검증](docs/ACTIONS_VALIDATION.md)을 참고하세요.
+
 ---
 
 ## Server Registration (QR Format)
