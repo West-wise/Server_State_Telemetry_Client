@@ -50,6 +50,7 @@ import com.SST.server_state_telemetry_client.presentation.ui.components.telemetr
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.UsersSummaryCard
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.UsersDetailDialog
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.RatioText
+import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.formatUptime
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.pushHistory
 import com.SST.server_state_telemetry_client.ui.theme.Bg
 import com.SST.server_state_telemetry_client.ui.theme.Card as CardColor
@@ -191,12 +192,8 @@ fun ServerDetailScreen(
                             )
                             Spacer(Modifier.height(2.dp))
                             val uptimeSecs = stats?.uptimeSecs ?: 0L
-                            val d = uptimeSecs / 86400
-                            val h = (uptimeSecs % 86400) / 3600
-                            val m = (uptimeSecs % 3600) / 60
-                            val sec = uptimeSecs % 60
                             Text(
-                                text = "업타임 ${d}d %02d:%02d:%02d".format(h, m, sec),
+                                text = "업타임 ${formatUptime(uptimeSecs)}",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontFamily = FontFamily.Monospace,
                                 color = Text3,

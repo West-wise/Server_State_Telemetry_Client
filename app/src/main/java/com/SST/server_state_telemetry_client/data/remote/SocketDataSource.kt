@@ -1,8 +1,5 @@
 package com.SST.server_state_telemetry_client.data.remote
 
-import com.SST.server_state_telemetry_client.domain.model.DiskSummary
-import com.SST.server_state_telemetry_client.domain.model.FdInfo
-import com.SST.server_state_telemetry_client.domain.model.NetInfo
 import com.SST.server_state_telemetry_client.domain.model.SystemStats
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.Socket
@@ -21,8 +18,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -158,75 +153,12 @@ class SocketDataSource @Inject constructor() {
                         break
                     }
 
-                    if (plaintext.size < 24) continue
-
-                    val buf = ByteBuffer.wrap(plaintext).order(ByteOrder.LITTLE_ENDIAN)
-                    val magic = buf.int
-                    if (magic != 0x53535444) continue
-
-                    buf.get()          // version
-                    val type = buf.get()
-                    buf.short          // clientId
-                    buf.int            // requestId
-                    buf.long           // timestamp
-                    val bodyLen = buf.int
-
-                    if (type == 0x11.toByte() && bodyLen == 134 && plaintext.size >= 158) {
-                        val body = ByteBuffer.wrap(plaintext, 24, 134).order(ByteOrder.LITTLE_ENDIAN)
-
-                        val validMask = body.short.toInt() and 0xFFFF
-                        body.short // reserved
-                        val cpuUsage = body.get().toInt() and 0xFF
-                        val memUsage = body.get().toInt() and 0xFF
-
-                        val rxBytesPs  = body.long
-                        val rxPacketPs = body.int.toLong() and 0xFFFFFFFFL
-                        val rxErrPs    = body.int.toLong() and 0xFFFFFFFFL
-                        val rxDropPs   = body.int.toLong() and 0xFFFFFFFFL
-                        val netRx = NetInfo(rxBytesPs, rxPacketPs, rxErrPs, rxDropPs)
-
-                        val txBytesPs  = body.long
-                        val txPacketPs = body.int.toLong() and 0xFFFFFFFFL
-                        val txErrPs    = body.int.toLong() and 0xFFFFFFFFL
-                        val txDropPs   = body.int.toLong() and 0xFFFFFFFFL
-                        val netTx = NetInfo(txBytesPs, txPacketPs, txErrPs, txDropPs)
-
-                        val procCount          = body.int.toLong() and 0xFFFFFFFFL
-                        val totalProcCount     = body.int.toLong() and 0xFFFFFFFFL
-                        val netUserCount       = body.short.toInt() and 0xFFFF
-                        val connectedUserCount = body.short.toInt() and 0xFFFF
-                        val uptimeSecs         = body.int.toLong() and 0xFFFFFFFFL
-
-                        val allocatedFdCnt = body.int.toLong() and 0xFFFFFFFFL
-                        val usingFdCnt     = body.int.toLong() and 0xFFFFFFFFL
-                        val fdInfo = FdInfo(allocatedFdCnt, usingFdCnt)
-
-                        val disk = DiskSummary(
-                            totalRoot = body.long, usedRoot = body.long,
-                            totalHome = body.long, usedHome = body.long,
-                            totalVar  = body.long, usedVar  = body.long,
-                            totalBoot = body.long, usedBoot = body.long
-                        )
-
-                        android.util.Log.d(
-                            "SocketDataSource",
-                            "Stats from $host:$port — CPU=$cpuUsage%, MEM=$memUsage%"
-                        )
-                        emit(SystemStats(
-                            validMask = validMask,
-                            cpuUsage = cpuUsage,
-                            memUsage = memUsage,
-                            netRx = netRx,
-                            netTx = netTx,
-                            procCount = procCount,
-                            totalProcCount = totalProcCount,
-                            netUserCount = netUserCount,
-                            connectedUserCount = connectedUserCount,
-                            uptimeSecs = uptimeSecs,
-                            fdInfo = fdInfo,
-                            disk = disk
-                        ))
-                    }
+                    val stats = decodeSystemStats(plaintext) ?: continue
+                    android.util.Log.d(
+                        "SocketDataSource",
+                        "Stats from $host:$port — CPU=${stats.cpuUsage}%, MEM=${stats.memUsage}%"
+                    )
+                    emit(stats)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
