@@ -1,0 +1,32 @@
+name: SST-AX UI/UX 요청
+description: 화면 문제나 UI/UX 개선 요청을 SST-AX 영향 분석 입력으로 등록합니다.
+title: "[AX] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        토큰, 비밀번호, 개인키, keystore 또는 인증 로그를 입력하지 마세요.
+  - type: textarea
+    id: request
+    attributes:
+      label: 요청
+      description: 대상 화면, 현재 문제와 원하는 동작을 적어 주세요.
+      placeholder: "예: 기기 전면 카메라 컷아웃에 상단 버튼이 가려집니다."
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 제약 사항
+      description: 유지해야 하는 동작과 변경 범위를 적어 주세요.
+      placeholder: "예: 탐색과 통신 동작을 유지하고 고정 높이 여백은 사용하지 않습니다."
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: 검증 기준
+      description: 수정 완료를 판단할 조건과 사람이 확인할 기기·화면 방향을 적어 주세요.
+      placeholder: "예: 빌드·단위 테스트 통과, 실제 기기 세로·가로 화면에서 가림과 중복 여백 없음."
+    validations:
+      required: true

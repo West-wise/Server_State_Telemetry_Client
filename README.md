@@ -100,7 +100,7 @@ Client                          Server
 
 - Android **8.0+ (API 26)**
 - Android Studio Ladybug 이상
-- JDK 11
+- JDK 17 (Gradle 실행용; Java/Kotlin 컴파일 대상은 11)
 - 연결 대상: [SSTD 데몬](https://github.com/West-wise/SSTD) 실행 중인 서버
 
 ---
@@ -124,6 +124,15 @@ cd SSTC
 SST-AX Task의 후보 커밋은 GitHub Actions의 수동 빌드로 검증할 수 있습니다.
 Task ID·고정 commit SHA와 결과 JSON의 사용 방법은
 [원격 빌드 검증](docs/ACTIONS_VALIDATION.md)을 참고하세요.
+
+`testDebugUnitTest`에는 SSTD 패킷 파서와 표시 단위의 회귀 테스트가 포함됩니다.
+SSTD `08f917cf853785cf026c6c32f7af244097ba3a15`의 `PacketUtil::createPacket`으로 생성한
+158바이트 입력을 사용해 little-endian, 필드 폭, unsigned 값, valid mask 보존,
+CPU·메모리 퍼센트, 네트워크 bytes/sec, uptime 초 단위를 검증합니다.
+valid mask의 비트별 의미, 암호화·재전송 방지, 실제 화면 확인은 이 테스트의 검증 범위에 포함되지 않습니다.
+
+UI/UX 요청은 GitHub의 **New issue → SST-AX UI/UX 요청** 양식에서 등록할 수 있습니다.
+기본 제목 `[AX] `를 유지하고 요청·제약 사항·검증 기준을 작성하면 SST-AX의 독립 요청 입력이 됩니다.
 
 ---
 

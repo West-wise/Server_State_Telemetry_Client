@@ -24,19 +24,6 @@ import com.SST.server_state_telemetry_client.ui.theme.Primary
 import com.SST.server_state_telemetry_client.ui.theme.Server_State_Telemetry_ClientTheme
 import kotlin.math.max
 
-fun formatBytesPerSec(bps: Long): String {
-    val kb = 1024.0
-    val mb = kb * 1024.0
-    val gb = mb * 1024.0
-    val v = bps.toDouble()
-    return when {
-        v >= gb -> String.format("%.2f GB/s", v / gb)
-        v >= mb -> String.format("%.2f MB/s", v / mb)
-        v >= kb -> String.format("%.2f KB/s", v / kb)
-        else -> "$bps B/s"
-    }
-}
-
 fun pushHistory(list: MutableList<Long>, value: Long) {
     val safe = max(0L, value)
     list.add(safe)
