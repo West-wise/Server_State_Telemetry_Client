@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -133,6 +134,7 @@ fun ServerDetailScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Bg)
+            .displayCutoutPadding()
             .systemBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
