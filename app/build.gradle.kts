@@ -7,6 +7,18 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val packagingVersionCode = providers.gradleProperty("sstcVersionCode").orElse("1").get()
+require(packagingVersionCode.matches(Regex("[1-9][0-9]{0,9}")) &&
+    packagingVersionCode.toLong() in 1L..2100000000L) {
+    "Invalid SSTC version code"
+}
+val packagingVersionName = providers.gradleProperty("sstcVersionName").orElse("1.0").get()
+require(packagingVersionName.length in 1..64 &&
+    packagingVersionName.any { it != ' ' } &&
+    packagingVersionName.all { it.code in 32..126 && it != '\"' && it != '\\' && it != '\'' }) {
+    "Invalid SSTC version name"
+}
+
 android {
     namespace = "com.SST.server_state_telemetry_client"
     compileSdk = 35
@@ -15,8 +27,8 @@ android {
         applicationId = "com.SST.server_state_telemetry_client"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = packagingVersionCode.toInt()
+        versionName = packagingVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

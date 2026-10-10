@@ -1,0 +1,67 @@
+name: SSTC Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Android versionCode (1..2100000000)'
+        required: true
+        type: string
+      version_name:
+        description: 'Display version (1..64 printable ASCII characters)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SSTC_VERSION_CODE: ${{ inputs.version_code }}
+      SSTC_VERSION_NAME: ${{ inputs.version_name }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout dispatched main commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate versions and packaging tests
+        run: |
+          python3 scripts/package_release.py validate
+          python3 -m unittest discover -s tests -p 'test_package_release.py' -v
+      - name: Set up JDK 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-disabled: true
+      - name: Test debug build then build unsigned release
+        run: python3 scripts/package_release.py build
+      - name: Sign and verify package
+        env:
+          SSTC_KEYSTORE_BASE64: ${{ secrets.SSTC_KEYSTORE_BASE64 }}
+          SSTC_KEYSTORE_PASSWORD: ${{ secrets.SSTC_KEYSTORE_PASSWORD }}
+          SSTC_KEY_ALIAS: ${{ secrets.SSTC_KEY_ALIAS }}
+          SSTC_KEY_PASSWORD: ${{ secrets.SSTC_KEY_PASSWORD }}
+          SSTC_SIGNING_CERT_SHA256: ${{ secrets.SSTC_SIGNING_CERT_SHA256 }}
+        run: python3 scripts/package_release.py sign
+      - name: Upload verified package
+        if: ${{ success() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sstc-package-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release-package/sstc-release.apk
+            release-package/sstc-update.json
+            release-package/SHA256SUMS
+            release-package/packaging-verification.json
+          if-no-files-found: error
+          retention-days: 14
