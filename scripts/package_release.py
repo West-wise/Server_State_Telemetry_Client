@@ -17,6 +17,8 @@ SECRET_NAMES = (
     "SSTC_KEY_PASSWORD", "SSTC_SIGNING_CERT_SHA256",
 )
 ASSET_NAME = "sstc-release.apk"
+BUILD_TOOLS_VERSION = "37.0.0"
+APKSIG_JAR_SHA256 = "2defad215d7ff52968a409cde528cdaef7918b115e276b8e3378ca7a178e4180"
 
 
 class PackagingError(Exception):
@@ -69,7 +71,9 @@ def validate_signing(env):
 
 
 def clean_environment(env):
-    return {key: value for key, value in env.items() if key not in SECRET_NAMES}
+    return {key: value for key, value in env.items()
+            if key not in (*SECRET_NAMES, "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS",
+                           "_JAVA_OPTIONS", "CLASSPATH")}
 
 
 def run_tool(args, label, runner=subprocess.run, env=None):
@@ -85,14 +89,25 @@ def run_tool(args, label, runner=subprocess.run, env=None):
 
 
 def find_tools(sdk):
-    root = Path(sdk) / "build-tools"
-    versions = [p for p in root.glob("*") if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", p.name)]
-    if not versions:
-        raise PackagingError("MISSING_ANDROID_TOOLS")
-    directory = max(versions, key=lambda p: tuple(map(int, p.name.split("."))))
+    directory = Path(sdk) / "build-tools" / BUILD_TOOLS_VERSION
     tools = {name: directory / name for name in ("aapt", "zipalign", "apksigner")}
-    if any(not p.is_file() or not os.access(p, os.X_OK) for p in tools.values()):
+    if any(not p.is_file() or p.is_symlink() or not os.access(p, os.X_OK)
+           for p in tools.values()):
         raise PackagingError("MISSING_ANDROID_TOOLS")
+    jar = directory / "lib" / "apksigner.jar"
+    if not jar.is_file() or jar.is_symlink():
+        raise PackagingError("MISSING_CERTIFICATE_VERIFIER")
+    if hashlib.sha256(jar.read_bytes()).hexdigest() != APKSIG_JAR_SHA256:
+        raise PackagingError("CERTIFICATE_VERIFIER_VERSION_MISMATCH")
+    home = os.environ.get("JAVA_HOME")
+    if not home:
+        raise PackagingError("MISSING_JDK_17")
+    release = Path(home) / "release"
+    if not release.is_file() or not re.search(r'^JAVA_VERSION="17(?:\.|\")', release.read_text(), re.MULTILINE):
+        raise PackagingError("MISSING_JDK_17")
+    tools.update(apksig=jar, java=Path(home) / "bin/java", javac=Path(home) / "bin/javac")
+    if any(not tools[k].is_file() or not os.access(tools[k], os.X_OK) for k in ("java", "javac")):
+        raise PackagingError("MISSING_JDK_17")
     return tools
 
 
@@ -113,28 +128,56 @@ def inspect_apk(badging, code, name):
 
 
 def verify_certificate(output, expected):
-    digests = re.findall(r"^Signer #[0-9]+ certificate SHA-256 digest: ([0-9a-fA-F]{64})\s*$",
-                         output, re.MULTILINE)
-    # This recognition is diagnostic ONLY: never add these digests to acceptance.
-    versioned = re.search(
-        r"^Signer \(minSdkVersion=[0-9]+, maxSdkVersion=[0-9]+\)"
-        r" certificate SHA-256 digest: [0-9a-fA-F]{64}\s*$",
-        output, re.MULTILINE,
-    ) is not None
-    output_format = ("MIXED" if digests and versioned else
-                     "EXISTING_SIGNER" if digests else
-                     "VERSIONED_SIGNER" if versioned else "UNRECOGNIZED")
-    count = len(digests)
-    matches = digests[0].lower() == expected if count == 1 else None
+    def unique_fields(items):
+        value = {}
+        for key, item in items:
+            if key in value:
+                raise ValueError("DUPLICATE_FIELD")
+            value[key] = item
+        return value
+    try:
+        if not isinstance(output, str) or len(output) > 2048:
+            raise ValueError("INVALID_HELPER_OUTPUT")
+        value = json.loads(output, object_pairs_hook=unique_fields)
+        if not isinstance(value, dict) or set(value) != {"verified", "signerCount", "sha256", "rotation"}:
+            raise ValueError("INVALID_HELPER_OUTPUT")
+        count, sha = value["signerCount"], value["sha256"]
+        if (type(value["verified"]) is not bool or type(value["rotation"]) is not bool or
+                type(count) is not int or not 0 <= count <= 2147483647 or
+                (count == 1 and (not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha))) or
+                (count != 1 and sha is not None)):
+            raise ValueError("INVALID_HELPER_OUTPUT")
+    except (ValueError, TypeError):
+        raise CertificateVerificationError("SIGNING_CERTIFICATE_EXTRACTION_FAILED", 0, None,
+                                           "UNRECOGNIZED") from None
+    if not value["verified"]:
+        raise PackagingError("SIGNATURE_VERIFICATION_FAILED")
     if count == 0:
-        code = "SIGNING_CERTIFICATE_EXTRACTION_FAILED"
-    elif count > 1:
-        code = "SIGNING_CERTIFICATE_MULTIPLE_DIGESTS"
-    elif not matches:
-        code = "SIGNING_CERTIFICATE_MISMATCH"
-    else:
-        return
-    raise CertificateVerificationError(code, count, matches, output_format)
+        raise CertificateVerificationError("SIGNING_CERTIFICATE_EXTRACTION_FAILED", count, None,
+                                           "SDK_CERTIFICATE")
+    if count != 1:
+        raise CertificateVerificationError("SIGNING_CERTIFICATE_MULTIPLE_DIGESTS", count, None,
+                                           "SDK_CERTIFICATE")
+    if value["rotation"]:
+        raise CertificateVerificationError("SIGNING_CERTIFICATE_ROTATION_UNSUPPORTED", count, None,
+                                           "SDK_CERTIFICATE")
+    if sha.lower() != expected:
+        raise CertificateVerificationError("SIGNING_CERTIFICATE_MISMATCH", count, False,
+                                           "SDK_CERTIFICATE")
+
+
+def certificate_output(signed, tools, private, runner, env):
+    helper = Path(__file__).resolve().with_name("VerifyApkCertificate.java")
+    if not helper.is_file() or helper.is_symlink():
+        raise PackagingError("MISSING_CERTIFICATE_HELPER")
+    classes = private / "certificate-helper"
+    classes.mkdir(mode=0o700)
+    run_tool([tools["javac"], "-encoding", "UTF-8", "--release", "17", "-cp", tools["apksig"],
+              "-d", classes, helper], "CERTIFICATE_HELPER_COMPILATION_FAILED", runner, env)
+    if not (classes / "VerifyApkCertificate.class").is_file():
+        raise PackagingError("CERTIFICATE_HELPER_COMPILATION_FAILED")
+    return run_tool([tools["java"], "-cp", str(classes) + os.pathsep + str(tools["apksig"]),
+                     "VerifyApkCertificate", signed], "CERTIFICATE_HELPER_FAILED", runner, env)
 
 
 def make_metadata(identity, apk):
@@ -167,7 +210,8 @@ def package_release(unsigned, output, code, name, tools, env, runner=subprocess.
         raise PackagingError("MISSING_UNSIGNED_APK")
     if output.exists():
         raise PackagingError("OUTPUT_ALREADY_EXISTS")
-    if any(not Path(tools[k]).is_file() for k in ("aapt", "zipalign", "apksigner")):
+    if any(k not in tools or not Path(tools[k]).is_file()
+           for k in ("aapt", "zipalign", "apksigner", "java", "javac", "apksig")):
         raise PackagingError("MISSING_ANDROID_TOOLS")
     # Nothing is published until every check passes. TemporaryDirectory cleans all
     # private material and partial outputs even when a tool or validation fails.
@@ -192,9 +236,9 @@ def package_release(unsigned, output, code, name, tools, env, runner=subprocess.
                  "APK_SIGNING_FAILED", runner, env)
         run_tool([tools["zipalign"], "-c", "-P", "16", "4", signed],
                  "ALIGNMENT_VERIFICATION_FAILED", runner, env)
-        cert_output = run_tool([tools["apksigner"], "verify", "--verbose", "--print-certs", signed],
-                               "SIGNATURE_VERIFICATION_FAILED", runner, env)
-        verify_certificate(cert_output, cert)
+        run_tool([tools["apksigner"], "verify", "--verbose", signed],
+                 "SIGNATURE_VERIFICATION_FAILED", runner, env)
+        verify_certificate(certificate_output(signed, tools, private, runner, env), cert)
         badging = run_tool([tools["aapt"], "dump", "badging", signed],
                            "APK_INSPECTION_FAILED", runner, env)
         identity = inspect_apk(badging, version_code, version_name)
