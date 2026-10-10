@@ -2,6 +2,8 @@
 import base64
 import hashlib
 import importlib.util
+import io
+from contextlib import redirect_stderr, redirect_stdout
 import json
 import os
 from pathlib import Path
@@ -171,12 +173,79 @@ class PackagingTests(unittest.TestCase):
             self.assertTrue(all(not path.exists() for path in self.private_paths))
 
     def test_certificate_mismatch_missing_or_multiple(self):
-        for certs in ("", self.certs.replace(CERT, "cd" * 32), self.certs + self.certs):
+        for certs, code in (
+                ("", "SIGNING_CERTIFICATE_EXTRACTION_FAILED"),
+                (self.certs.replace(CERT, "cd" * 32), "SIGNING_CERTIFICATE_MISMATCH"),
+                (self.certs + self.certs, "SIGNING_CERTIFICATE_MULTIPLE_DIGESTS")):
             self.certs = certs
-            with self.subTest(certs=certs), self.assertRaisesRegex(p.PackagingError, "SIGNING_CERTIFICATE_MISMATCH"):
+            with self.subTest(code=code), self.assertRaisesRegex(p.PackagingError, code):
                 self.package()
             self.assertFalse(self.output.exists())
             self.assertTrue(all(not path.exists() for path in self.private_paths))
+
+    def test_command_certificate_diagnostics_are_safe_and_fail_closed(self):
+        existing = self.certs
+        versioned = ("Signer (minSdkVersion=26, maxSdkVersion=35) "
+                     "certificate SHA-256 digest: " + CERT + "\n")
+        sensitive = ("subject=CN=synthetic-private-subject alias=synthetic-alias "
+                     "credential field: [REDACTED] keystore=/private/synthetic-path "
+                     "\x1b[31m supplied-value\n")
+        cases = (
+            ("", "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
+            (sensitive, "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
+            (existing.replace(CERT, "malformed"), "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
+            (versioned + sensitive, "EXTRACTION_FAILED", 0, None, "VERSIONED_SIGNER"),
+            (existing * 2 + sensitive, "MULTIPLE_DIGESTS", 2, None, "EXISTING_SIGNER"),
+            (existing.replace(CERT, "cd" * 32) + sensitive,
+             "MISMATCH", 1, False, "EXISTING_SIGNER"),
+            (existing * 2 + versioned, "MULTIPLE_DIGESTS", 2, None, "MIXED"),
+        )
+        original_package = p.package_release
+        def fake_package(unsigned, output, code, name, tools, env):
+            return original_package(unsigned, output, code, name, tools, env, self.runner)
+        env = {**self.env, "SSTC_VERSION_CODE": "2", "SSTC_VERSION_NAME": "1.1",
+               "ANDROID_SDK_ROOT": str(self.root)}
+        argv = ["package_release.py", "sign", "--unsigned", str(self.unsigned),
+                "--output", str(self.output)]
+        for raw, suffix, count, matches, label in cases:
+            self.certs = raw
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with self.subTest(code=suffix, format=label), \
+                    patch.dict(os.environ, env, clear=True), \
+                    patch.object(p.sys, "argv", argv), \
+                    patch.object(p, "find_tools", return_value=self.tools), \
+                    patch.object(p, "package_release", side_effect=fake_package), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                self.assertEqual(p.main(), 1)
+                self.assertEqual(stdout.getvalue(), "")
+                if raw:
+                    self.assertNotIn(raw, stderr.getvalue())
+                self.assertNotIn("[REDACTED]", stderr.getvalue())
+                lines = stderr.getvalue().splitlines()
+                self.assertEqual(lines[0], "SIGNING_CERTIFICATE_" + suffix)
+                self.assertEqual(len(lines), 2)
+                prefix = "SIGNING_CERTIFICATE_DIAGNOSTIC "
+                self.assertTrue(lines[1].startswith(prefix))
+                self.assertEqual(json.loads(lines[1][len(prefix):]), {
+                    "extracted": count > 0, "recognized_count": count,
+                    "matches": matches, "format": label,
+                })
+                for value in (*self.env.values(), "cd" * 32, "synthetic-private-subject",
+                              "/private/synthetic-path", "supplied-value", str(self.root),
+                              *(str(path) for path in self.private_paths)):
+                    self.assertNotIn(value, stderr.getvalue())
+                self.assertFalse(self.output.exists())
+                self.assertTrue(self.private_paths)
+                self.assertTrue(all(not path.exists() for path in self.private_paths))
+                self.assertFalse(any(Path(args[0]).name == "aapt" for args in self.calls))
+
+    def test_existing_digest_acceptance_is_unchanged(self):
+        # Normalization stays in validate_signing; uppercase tool hex is accepted.
+        self.env["SSTC_SIGNING_CERT_SHA256"] = ":".join(["AB"] * 32)
+        self.certs = self.certs.replace(CERT, CERT.upper())
+        self.package()
+        self.assertTrue((self.output / p.ASSET_NAME).is_file())
+        self.assertTrue(all(not path.exists() for path in self.private_paths))
 
     def test_metadata_mismatch_and_apk_tampering(self):
         identity = p.inspect_apk(BADGING, 2, "1.1")

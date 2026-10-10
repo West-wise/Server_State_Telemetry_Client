@@ -23,6 +23,19 @@ class PackagingError(Exception):
     """Only fixed, non-sensitive labels may be exposed to operators."""
 
 
+class CertificateVerificationError(PackagingError):
+    """Diagnostic fields are derived only from fixed classifications and counts."""
+
+    def __init__(self, code, count, matches, output_format):
+        super().__init__(code)
+        self.diagnostic = {
+            "extracted": count > 0,
+            "recognized_count": count,
+            "matches": matches,
+            "format": output_format,
+        }
+
+
 def validate_versions(code, name):
     if not isinstance(code, str) or not re.fullmatch(r"[1-9][0-9]{0,9}", code):
         raise PackagingError("INVALID_VERSION_CODE")
@@ -102,8 +115,26 @@ def inspect_apk(badging, code, name):
 def verify_certificate(output, expected):
     digests = re.findall(r"^Signer #[0-9]+ certificate SHA-256 digest: ([0-9a-fA-F]{64})\s*$",
                          output, re.MULTILINE)
-    if len(digests) != 1 or digests[0].lower() != expected:
-        raise PackagingError("SIGNING_CERTIFICATE_MISMATCH")
+    # This recognition is diagnostic ONLY: never add these digests to acceptance.
+    versioned = re.search(
+        r"^Signer \(minSdkVersion=[0-9]+, maxSdkVersion=[0-9]+\)"
+        r" certificate SHA-256 digest: [0-9a-fA-F]{64}\s*$",
+        output, re.MULTILINE,
+    ) is not None
+    output_format = ("MIXED" if digests and versioned else
+                     "EXISTING_SIGNER" if digests else
+                     "VERSIONED_SIGNER" if versioned else "UNRECOGNIZED")
+    count = len(digests)
+    matches = digests[0].lower() == expected if count == 1 else None
+    if count == 0:
+        code = "SIGNING_CERTIFICATE_EXTRACTION_FAILED"
+    elif count > 1:
+        code = "SIGNING_CERTIFICATE_MULTIPLE_DIGESTS"
+    elif not matches:
+        code = "SIGNING_CERTIFICATE_MISMATCH"
+    else:
+        return
+    raise CertificateVerificationError(code, count, matches, output_format)
 
 
 def make_metadata(identity, apk):
@@ -212,6 +243,9 @@ def main():
             package_release(args.unsigned, args.output, code, name, find_tools(sdk), os.environ)
     except PackagingError as error:
         print(str(error), file=sys.stderr)
+        if isinstance(error, CertificateVerificationError):
+            print("SIGNING_CERTIFICATE_DIAGNOSTIC " + json.dumps(error.diagnostic),
+                  file=sys.stderr)
         return 1
     except Exception:
         print("PACKAGING_FAILED", file=sys.stderr)
