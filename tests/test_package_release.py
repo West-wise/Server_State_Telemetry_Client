@@ -30,7 +30,7 @@ class PackagingTests(unittest.TestCase):
         self.unsigned.write_bytes(b"unsigned fixture")
         self.output = self.root / "result"
         self.tools = {}
-        for name in ("aapt", "zipalign", "apksigner"):
+        for name in ("aapt", "zipalign", "apksigner", "java", "javac", "apksig"):
             tool = self.root / name
             tool.write_text("fake")
             tool.chmod(0o700)
@@ -42,7 +42,7 @@ class PackagingTests(unittest.TestCase):
         self.private_paths = []
         self.failure = None
         self.badging = BADGING
-        self.certs = "Signer #1 certificate SHA-256 digest: " + CERT + "\n"
+        self.certs = json.dumps({"verified": True, "signerCount": 1, "sha256": CERT, "rotation": False})
 
     def runner(self, args, **kwargs):
         self.calls.append(args)
@@ -69,7 +69,12 @@ class PackagingTests(unittest.TestCase):
                 password = Path(value[5:])
                 self.assertEqual(password.stat().st_mode & 0o777, 0o600)
             Path(args[args.index("--out") + 1]).write_bytes(b"signed fixture")
-        stdout = self.badging if Path(args[0]).name == "aapt" else self.certs
+        if Path(args[0]).name == "javac":
+            classes = Path(args[args.index("-d") + 1])
+            self.private_paths.append(classes.parent)
+            (classes / "VerifyApkCertificate.class").write_bytes(b"synthetic class")
+        stdout = self.badging if Path(args[0]).name == "aapt" else (
+            self.certs if Path(args[0]).name == "java" else "unparsed signer output")
         return subprocess.CompletedProcess(args, 0, stdout, "")
 
     def package(self):
@@ -112,11 +117,13 @@ class PackagingTests(unittest.TestCase):
         self.package()
         self.assertEqual([(Path(args[0]).name, args[1]) for args in self.calls],
                          [("zipalign", "-P"), ("apksigner", "sign"),
-                          ("zipalign", "-c"), ("apksigner", "verify"), ("aapt", "dump")])
+                          ("zipalign", "-c"), ("apksigner", "verify"),
+                          ("javac", "-encoding"), ("java", "-cp"), ("aapt", "dump")])
         signed = self.calls[1][self.calls[1].index("--out") + 1]
         self.assertEqual(self.calls[1][-1], self.calls[0][-1])
         for args in self.calls[2:]:
-            self.assertEqual(args[-1], signed)
+            if Path(args[0]).name != "javac":
+                self.assertEqual(args[-1], signed)
 
     def test_missing_and_malformed_signing(self):
         for field in p.SECRET_NAMES:
@@ -149,10 +156,10 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual(receipt["signingCertificateSha256"], CERT)
         self.assertFalse(receipt["deviceUpdateVerified"])
         self.assertTrue(all(not path.exists() for path in self.private_paths))
-        self.assertTrue(any(args[1:4] == ["verify", "--verbose", "--print-certs"] for args in self.calls))
+        self.assertTrue(any(args[1:3] == ["verify", "--verbose"] for args in self.calls))
 
     def test_each_tool_failure_closes_and_cleans(self):
-        for operation in ("zipalign -P", "apksigner sign", "zipalign -c", "apksigner verify", "aapt dump"):
+        for operation in ("zipalign -P", "apksigner sign", "zipalign -c", "apksigner verify", "javac -encoding", "java -cp", "aapt dump"):
             self.failure = operation
             with self.subTest(operation=operation), self.assertRaises(p.PackagingError) as caught:
                 self.package()
@@ -176,7 +183,8 @@ class PackagingTests(unittest.TestCase):
         for certs, code in (
                 ("", "SIGNING_CERTIFICATE_EXTRACTION_FAILED"),
                 (self.certs.replace(CERT, "cd" * 32), "SIGNING_CERTIFICATE_MISMATCH"),
-                (self.certs + self.certs, "SIGNING_CERTIFICATE_MULTIPLE_DIGESTS")):
+                (json.dumps({"verified": True, "signerCount": 2, "sha256": None, "rotation": False}),
+                 "SIGNING_CERTIFICATE_MULTIPLE_DIGESTS")):
             self.certs = certs
             with self.subTest(code=code), self.assertRaisesRegex(p.PackagingError, code):
                 self.package()
@@ -184,62 +192,101 @@ class PackagingTests(unittest.TestCase):
             self.assertTrue(all(not path.exists() for path in self.private_paths))
 
     def test_command_certificate_diagnostics_are_safe_and_fail_closed(self):
-        existing = self.certs
-        versioned = ("Signer (minSdkVersion=26, maxSdkVersion=35) "
-                     "certificate SHA-256 digest: " + CERT + "\n")
-        sensitive = ("subject=CN=synthetic-private-subject alias=synthetic-alias "
-                     "credential field: [REDACTED] keystore=/private/synthetic-path "
-                     "\x1b[31m supplied-value\n")
+        sensitive = "subject=CN=synthetic-private-subject alias=synthetic-alias /private/synthetic-path"
         cases = (
             ("", "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
             (sensitive, "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
-            (existing.replace(CERT, "malformed"), "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
-            (versioned + sensitive, "EXTRACTION_FAILED", 0, None, "VERSIONED_SIGNER"),
-            (existing * 2 + sensitive, "MULTIPLE_DIGESTS", 2, None, "EXISTING_SIGNER"),
-            (existing.replace(CERT, "cd" * 32) + sensitive,
-             "MISMATCH", 1, False, "EXISTING_SIGNER"),
-            (existing * 2 + versioned, "MULTIPLE_DIGESTS", 2, None, "MIXED"),
+            ("Signer #1 certificate SHA-256 digest: " + CERT, "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
+            (self.certs + sensitive, "EXTRACTION_FAILED", 0, None, "UNRECOGNIZED"),
+            (json.dumps({"verified": True, "signerCount": 0, "sha256": None, "rotation": False}),
+             "EXTRACTION_FAILED", 0, None, "SDK_CERTIFICATE"),
+            (json.dumps({"verified": True, "signerCount": 2, "sha256": None, "rotation": False}),
+             "MULTIPLE_DIGESTS", 2, None, "SDK_CERTIFICATE"),
+            (self.certs.replace(CERT, "cd" * 32), "MISMATCH", 1, False, "SDK_CERTIFICATE"),
+            (self.certs.replace('"rotation": false', '"rotation": true'),
+             "ROTATION_UNSUPPORTED", 1, None, "SDK_CERTIFICATE"),
         )
         original_package = p.package_release
         def fake_package(unsigned, output, code, name, tools, env):
             return original_package(unsigned, output, code, name, tools, env, self.runner)
-        env = {**self.env, "SSTC_VERSION_CODE": "2", "SSTC_VERSION_NAME": "1.1",
-               "ANDROID_SDK_ROOT": str(self.root)}
-        argv = ["package_release.py", "sign", "--unsigned", str(self.unsigned),
-                "--output", str(self.output)]
+        env = {**self.env, "SSTC_VERSION_CODE": "2", "SSTC_VERSION_NAME": "1.1", "ANDROID_SDK_ROOT": str(self.root)}
+        argv = ["package_release.py", "sign", "--unsigned", str(self.unsigned), "--output", str(self.output)]
         for raw, suffix, count, matches, label in cases:
             self.certs = raw
             stdout, stderr = io.StringIO(), io.StringIO()
-            with self.subTest(code=suffix, format=label), \
-                    patch.dict(os.environ, env, clear=True), \
-                    patch.object(p.sys, "argv", argv), \
-                    patch.object(p, "find_tools", return_value=self.tools), \
+            with self.subTest(code=suffix), patch.dict(os.environ, env, clear=True), \
+                    patch.object(p.sys, "argv", argv), patch.object(p, "find_tools", return_value=self.tools), \
                     patch.object(p, "package_release", side_effect=fake_package), \
                     redirect_stdout(stdout), redirect_stderr(stderr):
                 self.assertEqual(p.main(), 1)
                 self.assertEqual(stdout.getvalue(), "")
                 if raw:
                     self.assertNotIn(raw, stderr.getvalue())
-                self.assertNotIn("[REDACTED]", stderr.getvalue())
                 lines = stderr.getvalue().splitlines()
                 self.assertEqual(lines[0], "SIGNING_CERTIFICATE_" + suffix)
                 self.assertEqual(len(lines), 2)
-                prefix = "SIGNING_CERTIFICATE_DIAGNOSTIC "
-                self.assertTrue(lines[1].startswith(prefix))
-                self.assertEqual(json.loads(lines[1][len(prefix):]), {
-                    "extracted": count > 0, "recognized_count": count,
-                    "matches": matches, "format": label,
-                })
-                for value in (*self.env.values(), "cd" * 32, "synthetic-private-subject",
-                              "/private/synthetic-path", "supplied-value", str(self.root),
-                              *(str(path) for path in self.private_paths)):
+                self.assertEqual(json.loads(lines[1][len("SIGNING_CERTIFICATE_DIAGNOSTIC "):]), {
+                    "extracted": count > 0, "recognized_count": count, "matches": matches, "format": label})
+                for value in (*self.env.values(), "cd" * 32, "synthetic-private-subject", "/private/synthetic-path",
+                              str(self.root), *(str(path) for path in self.private_paths)):
                     self.assertNotIn(value, stderr.getvalue())
                 self.assertFalse(self.output.exists())
-                self.assertTrue(self.private_paths)
                 self.assertTrue(all(not path.exists() for path in self.private_paths))
                 self.assertFalse(any(Path(args[0]).name == "aapt" for args in self.calls))
 
-    def test_existing_digest_acceptance_is_unchanged(self):
+    def test_helper_contract_rejects_duplicate_fields_wrong_types_and_unverified(self):
+        valid = {"verified": True, "signerCount": 1, "sha256": CERT, "rotation": False}
+        invalid = ["[]", "null", json.dumps(valid) + json.dumps(valid), "x" * 2049,
+                   json.dumps({**valid, "verified": 1}), json.dumps({**valid, "signerCount": True}),
+                   json.dumps({**valid, "signerCount": -1}), json.dumps({**valid, "rotation": None}),
+                   json.dumps({**valid, "sha256": "xx" * 32}), json.dumps({**valid, "extra": "secret"}),
+                   json.dumps(valid).replace('"verified": true', '"verified": true, "verified": false')]
+        for raw in invalid:
+            with self.subTest(raw=raw), self.assertRaisesRegex(p.PackagingError, "EXTRACTION_FAILED"):
+                p.verify_certificate(raw, CERT)
+        with self.assertRaisesRegex(p.PackagingError, "SIGNATURE_VERIFICATION_FAILED"):
+            p.verify_certificate(json.dumps({"verified": False, "signerCount": 0, "sha256": None, "rotation": False}), CERT)
+
+    def test_pinned_sdk_jar_and_jdk_fail_without_fallback(self):
+        sdk = self.root / "sdk"
+        version = sdk / "build-tools" / p.BUILD_TOOLS_VERSION
+        version.mkdir(parents=True)
+        for name in ("aapt", "zipalign", "apksigner"):
+            (version / name).write_text("synthetic tool")
+            (version / name).chmod(0o700)
+        jar = version / "lib/apksigner.jar"
+        jar.parent.mkdir()
+        jar.write_bytes(b"synthetic jar")
+        jdk = self.root / "jdk"
+        (jdk / "bin").mkdir(parents=True)
+        for name in ("java", "javac"):
+            (jdk / "bin" / name).write_text("synthetic executable")
+            (jdk / "bin" / name).chmod(0o700)
+        (jdk / "release").write_text('JAVA_VERSION="17.0.20.1"\n')
+        digest = hashlib.sha256(jar.read_bytes()).hexdigest()
+        with patch.dict(os.environ, {"JAVA_HOME": str(jdk)}), patch.object(p, "APKSIG_JAR_SHA256", digest):
+            self.assertEqual(p.find_tools(sdk)["apksig"], jar)
+            (jdk / "release").write_text('JAVA_VERSION="21.0.1"\n')
+            with self.assertRaisesRegex(p.PackagingError, "MISSING_JDK_17"):
+                p.find_tools(sdk)
+            (jdk / "release").write_text('JAVA_VERSION="17.0.20.1"\n')
+            jar.write_bytes(b"changed jar")
+            with self.assertRaisesRegex(p.PackagingError, "VERIFIER_VERSION_MISMATCH"):
+                p.find_tools(sdk)
+            jar.unlink()
+            with self.assertRaisesRegex(p.PackagingError, "MISSING_CERTIFICATE_VERIFIER"):
+                p.find_tools(sdk)
+        (version / "aapt").unlink()
+        with self.assertRaisesRegex(p.PackagingError, "MISSING_ANDROID_TOOLS"):
+            p.find_tools(sdk)
+
+    def test_java_startup_options_are_removed_from_child_environment(self):
+        env = {**self.env, "JAVA_TOOL_OPTIONS": "synthetic private argument", "JDK_JAVA_OPTIONS": "synthetic",
+               "_JAVA_OPTIONS": "synthetic", "CLASSPATH": "synthetic"}
+        cleaned = p.clean_environment(env)
+        self.assertFalse(any(k in cleaned for k in (*p.SECRET_NAMES, "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "CLASSPATH")))
+
+    def test_normalized_expected_der_certificate_is_accepted(self):
         # Normalization stays in validate_signing; uppercase tool hex is accepted.
         self.env["SSTC_SIGNING_CERT_SHA256"] = ":".join(["AB"] * 32)
         self.certs = self.certs.replace(CERT, CERT.upper())
