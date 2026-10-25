@@ -121,6 +121,8 @@ cd SSTC
 
 > Windows: `gradlew.bat assembleDebug`
 
+자동 릴리스·앱 내 업데이트 설정과 검증 절차는 [앱 업데이트](docs/APP_UPDATES.md)를 참고하세요.
+
 SST-AX Task의 후보 커밋은 GitHub Actions의 수동 빌드로 검증할 수 있습니다.
 Task ID·고정 commit SHA와 결과 JSON의 사용 방법은
 [원격 빌드 검증](docs/ACTIONS_VALIDATION.md)을 참고하세요.
