@@ -62,3 +62,9 @@ internal fun withinUpdateDay(now: Long, previous: Long): Boolean =
 
 internal fun AppUpdate.isNewSupportedVersion(installedCode: Long, sdk: Int): Boolean =
     isValid() && versionCode > installedCode && sdk >= minSdkVersion
+
+internal fun AppUpdate.downloadUrl(): String {
+    require(isValid())
+    val asset = URI(null, null, "/$apkAssetName", null).rawPath.removePrefix("/")
+    return releaseUrl.replace("/releases/tag/", "/releases/download/") + "/" + asset
+}
