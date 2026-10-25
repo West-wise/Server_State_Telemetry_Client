@@ -12,6 +12,7 @@ import com.SST.server_state_telemetry_client.domain.model.AppUpdate
 import com.SST.server_state_telemetry_client.domain.model.UpdateApkIdentity
 import com.SST.server_state_telemetry_client.domain.model.downloadUrl
 import com.SST.server_state_telemetry_client.domain.model.validateUpdateApk
+import com.SST.server_state_telemetry_client.data.remote.APP_UPDATE_DOWNLOAD_TIMEOUT_MILLIS
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.request.prepareGet
@@ -20,6 +21,7 @@ import io.ktor.utils.io.readAvailable
 import java.io.File
 import java.security.MessageDigest
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -32,7 +34,7 @@ import kotlinx.coroutines.withTimeout
 @Singleton
 internal class AppUpdateInstaller @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val client: HttpClient
+    @Named("appUpdateDownload") private val client: HttpClient
 ) {
     private val downloadMutex = Mutex()
 
@@ -45,7 +47,7 @@ internal class AppUpdateInstaller @Inject constructor(
                     .forEach { check(it.delete()) }
                 val partial = File.createTempFile("download-", ".part", directory)
                 try {
-                    withTimeout(600_000L) {
+                    withTimeout(APP_UPDATE_DOWNLOAD_TIMEOUT_MILLIS) {
                         client.prepareGet(update.downloadUrl()).execute { response ->
                             require(response.status.value == 200)
                             val total = response.headers["Content-Length"]?.toLong()?.also {
