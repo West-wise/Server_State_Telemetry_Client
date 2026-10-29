@@ -6,6 +6,18 @@ import org.junit.Test
 
 class TelemetryFormatTest {
     @Test
+    fun daemonUsagePreservesHundredthsAndUnavailableState() {
+        assertEquals("0.00%", formatDaemonUsage(0))
+        assertEquals("0.01%", formatDaemonUsage(1))
+        assertEquals("1.23%", formatDaemonUsage(123))
+        assertEquals("25.00%", formatDaemonUsage(2500))
+        assertEquals("100.00%", formatDaemonUsage(10000))
+        for (value in listOf(null, -1, 10001, 65535)) {
+            assertEquals("미측정", formatDaemonUsage(value))
+        }
+    }
+
+    @Test
     fun networkUsesBytesPerSecondAndExisting1024Scales() {
         val previous = Locale.getDefault()
         try {

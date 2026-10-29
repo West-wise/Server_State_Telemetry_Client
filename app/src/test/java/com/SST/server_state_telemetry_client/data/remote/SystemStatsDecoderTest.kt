@@ -21,6 +21,51 @@ class SystemStatsDecoderTest {
         "0010000000000000000400000000000000200000000000000008000000000000"
     ).chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
+    // Extend the independent legacy fixture using the published offsets 134/136.
+    private fun daemonPacket(cpu: Int, memory: Int): ByteArray = packet.copyOf(162).apply {
+        this[20] = 138.toByte()
+        this[158] = cpu.toByte()
+        this[159] = (cpu ushr 8).toByte()
+        this[160] = memory.toByte()
+        this[161] = (memory ushr 8).toByte()
+    }
+
+    @Test
+    fun decodesDaemonFixedPointFieldsIndependentlyOfValidityMask() {
+        val legacy = requireNotNull(decodeSystemStats(packet))
+        assertNull(legacy.daemonCpuUsage)
+        assertNull(legacy.daemonMemUsage)
+        for ((cpu, memory) in listOf(0 to 1, 123 to 2500, 10000 to 65535, 65535 to 10000)) {
+            val stats = requireNotNull(decodeSystemStats(daemonPacket(cpu, memory).apply {
+                this[24] = 0; this[25] = 0
+            }))
+            assertEquals(cpu.takeIf { it <= 10000 }, stats.daemonCpuUsage)
+            assertEquals(memory.takeIf { it <= 10000 }, stats.daemonMemUsage)
+            assertEquals(legacy.copy(validMask = 0, daemonCpuUsage = stats.daemonCpuUsage,
+                daemonMemUsage = stats.daemonMemUsage), stats)
+        }
+    }
+
+    @Test
+    fun invalidDaemonSamplesDoNotDiscardOtherMetrics() {
+        for (invalid in listOf(10001, 32768, 65534)) {
+            val stats = requireNotNull(decodeSystemStats(daemonPacket(invalid, 1)))
+            assertNull(stats.daemonCpuUsage)
+            assertEquals(1, requireNotNull(stats.daemonMemUsage))
+            assertEquals(37, stats.cpuUsage)
+            assertNull(requireNotNull(decodeSystemStats(daemonPacket(1, invalid))).daemonMemUsage)
+        }
+    }
+
+    @Test
+    fun rejectsTruncatedExtendedBodyAndUnsupportedLengths() {
+        val extended = daemonPacket(123, 65535)
+        for (size in 158..161) assertNull(decodeSystemStats(extended.copyOf(size)))
+        for (length in listOf(135, 136, 137, 139)) {
+            assertNull(decodeSystemStats(extended.copyOf().apply { this[20] = length.toByte() }))
+        }
+    }
+
     @Test
     fun decodesLittleEndianSstdPacketWithExactFieldWidths() {
         assertEquals(158, packet.size)

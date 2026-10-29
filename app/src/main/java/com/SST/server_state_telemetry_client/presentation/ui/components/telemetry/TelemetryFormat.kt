@@ -22,3 +22,8 @@ fun formatUptime(seconds: Long): String {
     val sec = seconds % 60
     return "${d}d %02d:%02d:%02d".format(h, m, sec)
 }
+
+/** SSTD process usage is already normalized to host capacity, in 0.01% units. */
+fun formatDaemonUsage(value: Int?): String =
+    if (value == null || value !in 0..10000) "미측정"
+    else java.lang.String.format(java.util.Locale.US, "%.2f%%", value / 100.0)
