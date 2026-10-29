@@ -51,6 +51,7 @@ import com.SST.server_state_telemetry_client.presentation.ui.components.telemetr
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.UsersSummaryCard
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.UsersDetailDialog
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.RatioText
+import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.formatDaemonUsage
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.formatUptime
 import com.SST.server_state_telemetry_client.presentation.ui.components.telemetry.pushHistory
 import com.SST.server_state_telemetry_client.ui.theme.Bg
@@ -225,6 +226,30 @@ fun ServerDetailScreen(
                         VerticalDivider()
                         StatColumn("디스크", "$diskPercent%")
                     }
+                }
+            }
+        }
+
+        item {
+            Card(
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = CardColor),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("SSTD 데몬", style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        StatColumn("CPU", formatDaemonUsage(stats?.daemonCpuUsage))
+                        StatColumn("상주 메모리", formatDaemonUsage(stats?.daemonMemUsage))
+                    }
+                    Text(
+                        "호스트 전체 기준 · CPU는 온라인 CPU 수로 정규화 · 메모리는 RSS / 전체 메모리 · 컨테이너 제한 기준 아님",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Text3,
+                    )
                 }
             }
         }
