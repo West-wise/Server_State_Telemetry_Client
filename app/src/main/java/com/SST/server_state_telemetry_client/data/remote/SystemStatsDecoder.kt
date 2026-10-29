@@ -7,7 +7,7 @@ import com.SST.server_state_telemetry_client.domain.model.SystemStats
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Decode the existing SSTD packed 24-byte header and 134-byte statistics body. */
+/** Decode the existing SSTD packed 24-byte header and 134- or 138-byte statistics body. */
 internal fun decodeSystemStats(plaintext: ByteArray): SystemStats? {
     if (plaintext.size < 24) return null
     val header = ByteBuffer.wrap(plaintext).order(ByteOrder.LITTLE_ENDIAN)
@@ -18,9 +18,9 @@ internal fun decodeSystemStats(plaintext: ByteArray): SystemStats? {
     header.int // requestId
     header.long // timestamp: preserve the existing receiver's behavior
     val bodyLen = header.int
-    if (type != 0x11.toByte() || bodyLen != 134 || plaintext.size < 158) return null
+    if (type != 0x11.toByte() || (bodyLen != 134 && bodyLen != 138) || plaintext.size < 24 + bodyLen) return null
 
-    val body = ByteBuffer.wrap(plaintext, 24, 134).order(ByteOrder.LITTLE_ENDIAN)
+    val body = ByteBuffer.wrap(plaintext, 24, bodyLen).order(ByteOrder.LITTLE_ENDIAN)
     val validMask = body.short.toInt() and 0xFFFF
     body.short // reserved
     val cpuUsage = body.get().toInt() and 0xFF
@@ -43,8 +43,12 @@ internal fun decodeSystemStats(plaintext: ByteArray): SystemStats? {
         body.long, body.long, body.long, body.long,
         body.long, body.long, body.long, body.long
     )
+    // Preserve valid zero; unavailable and out-of-range samples stay absent.
+    fun daemonUsage(): Int? = (body.short.toInt() and 0xFFFF).takeIf { it in 0..10000 }
+    val daemonCpuUsage = if (bodyLen == 138) daemonUsage() else null
+    val daemonMemUsage = if (bodyLen == 138) daemonUsage() else null
     return SystemStats(
         validMask, cpuUsage, memUsage, netRx, netTx, procCount, totalProcCount,
-        netUserCount, connectedUserCount, uptimeSecs, fdInfo, disk
+        netUserCount, connectedUserCount, uptimeSecs, fdInfo, disk, daemonCpuUsage, daemonMemUsage
     )
 }

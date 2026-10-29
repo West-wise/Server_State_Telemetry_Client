@@ -37,5 +37,9 @@ data class SystemStats(
         val connectedUserCount: Int,
         val uptimeSecs: Long,
         val fdInfo: FdInfo,
-        val disk: DiskSummary
+        val disk: DiskSummary,
+        // SSTD fixed-point 0.01% units (0..10000), independent of validMask.
+        // null means absent on legacy servers, unavailable (0xFFFF), or invalid.
+        val daemonCpuUsage: Int? = null,
+        val daemonMemUsage: Int? = null
 )
