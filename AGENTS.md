@@ -18,7 +18,16 @@
 - `main` 직접 push, PR 병합, Release 생성, 운영 배포를 수행하지 않는다.
 - 인증정보, 개인키, keystore, 원문 인증 로그를 출력하거나 커밋하지 않는다.
 
-## 검증
+## 브랜치와 SSTD 연동
+
+- `main`은 릴리스 기준, `dev`는 다음 버전의 통합 기준이다.
+- 신규 SST-AX 작업은 SSTC `dev`의 고정 SHA에서 `ax/sstc-sync/*`를 만들고 Draft PR의 대상을 `dev`로 지정한다. 작업 코드를 `dev`에 직접 push하지 않는다.
+- SSTD `dev` 변경에 필요한 SSTC 수정을 준비한다. SSTD `main` 승격이나 Release 발행만으로 같은 변경을 다시 구현하지 않는다.
+- 기존 Task·PR은 저장된 원래 기준 브랜치와 SHA를 유지한다.
+- 후보 코드는 `dev` 기준으로 작성하되 `sstc-validation.yml` dispatch와 영수증은 신뢰할 `main` 워크플로 및 후보 SHA에 고정한다.
+- 사람은 검증한 SSTD·SSTC SHA 조합과 연동 결과를 확인한 뒤 각 `dev`를 `main`으로 승격한다. 개별 빌드 성공을 연동 검증 완료로 보고하지 않는다.
+
+## 검증 명령
 
 - 빌드 기준은 `.github/workflows/android-ci.yml`과 Gradle 설정이다.
   CI의 Gradle 실행 JDK는 17이다. `app/build.gradle.kts`의 Java/Kotlin 대상 버전 11과 구분한다.
